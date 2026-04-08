@@ -1,6 +1,6 @@
 {
   "name": "@yawlabs/lemonsqueezy-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "LemonSqueezy MCP server for managing your store from AI assistants",
   "license": "MIT",
   "author": "YawLabs <contact@yaw.sh>",
