@@ -1,0 +1,139 @@
+import { z } from "zod";
+import { apiGet, apiPost, buildQuery } from "../api.js";
+
+export const subscriptionInvoiceTools = [
+  {
+    name: "ls_get_subscription_invoice",
+    description:
+      "Get a specific subscription invoice by ID, including status, total, billing reason, and payment details.",
+    annotations: {
+      title: "Get subscription invoice",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: z.object({
+      subscriptionInvoiceId: z.string().describe("The subscription invoice ID"),
+      include: z
+        .string()
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'store,subscription')"),
+    }),
+    handler: async (input: { subscriptionInvoiceId: string; include?: string }) => {
+      const query = buildQuery({ include: input.include?.split(",") });
+      return apiGet(`/subscription-invoices/${input.subscriptionInvoiceId}${query}`);
+    },
+  },
+  {
+    name: "ls_list_subscription_invoices",
+    description: "List all subscription invoices, optionally filtered by store, subscription, or status.",
+    annotations: {
+      title: "List subscription invoices",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: z.object({
+      storeId: z.string().optional().describe("Filter by store ID"),
+      subscriptionId: z.string().optional().describe("Filter by subscription ID"),
+      status: z.string().optional().describe("Filter by status (pending, paid, void, refunded)"),
+      refunded: z.string().optional().describe("Filter by refunded status ('true' or 'false')"),
+      include: z
+        .string()
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'store,subscription')"),
+      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().optional().describe("Results per page (1-100)"),
+    }),
+    handler: async (input: {
+      storeId?: string;
+      subscriptionId?: string;
+      status?: string;
+      refunded?: string;
+      include?: string;
+      pageNumber?: number;
+      pageSize?: number;
+    }) => {
+      const filter: Record<string, string> = {};
+      if (input.storeId) filter.store_id = input.storeId;
+      if (input.subscriptionId) filter.subscription_id = input.subscriptionId;
+      if (input.status) filter.status = input.status;
+      if (input.refunded) filter.refunded = input.refunded;
+      const query = buildQuery({
+        include: input.include?.split(","),
+        filter,
+        page: { number: input.pageNumber, size: input.pageSize },
+      });
+      return apiGet(`/subscription-invoices${query}`);
+    },
+  },
+  {
+    name: "ls_generate_subscription_invoice",
+    description: "Generate a PDF invoice for a subscription invoice. Returns a download URL.",
+    annotations: {
+      title: "Generate subscription invoice",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: z.object({
+      subscriptionInvoiceId: z.string().describe("The subscription invoice ID"),
+      name: z.string().optional().describe("Customer name on the invoice"),
+      address: z.string().optional().describe("Customer address on the invoice"),
+      city: z.string().optional().describe("Customer city"),
+      state: z.string().optional().describe("Customer state/region"),
+      zipCode: z.string().optional().describe("Customer ZIP/postal code"),
+      country: z.string().optional().describe("Customer country"),
+      notes: z.string().optional().describe("Additional notes to include on the invoice"),
+    }),
+    handler: async (input: {
+      subscriptionInvoiceId: string;
+      name?: string;
+      address?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+      country?: string;
+      notes?: string;
+    }) => {
+      const body: Record<string, unknown> = {};
+      if (input.name !== undefined) body.name = input.name;
+      if (input.address !== undefined) body.address = input.address;
+      if (input.city !== undefined) body.city = input.city;
+      if (input.state !== undefined) body.state = input.state;
+      if (input.zipCode !== undefined) body.zip_code = input.zipCode;
+      if (input.country !== undefined) body.country = input.country;
+      if (input.notes !== undefined) body.notes = input.notes;
+
+      return apiPost(`/subscription-invoices/${input.subscriptionInvoiceId}/generate-invoice`, body);
+    },
+  },
+  {
+    name: "ls_refund_subscription_invoice",
+    description:
+      "Issue a refund for a subscription invoice. This is irreversible — the refund amount is in cents (e.g. 1000 = $10.00).",
+    annotations: {
+      title: "Refund subscription invoice",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    inputSchema: z.object({
+      subscriptionInvoiceId: z.string().describe("The subscription invoice ID to refund"),
+      amount: z.number().describe("Refund amount in cents (e.g. 1000 = $10.00)"),
+    }),
+    handler: async (input: { subscriptionInvoiceId: string; amount: number }) => {
+      return apiPost(`/subscription-invoices/${input.subscriptionInvoiceId}/refund`, {
+        data: {
+          type: "subscription-invoices",
+          id: input.subscriptionInvoiceId,
+          attributes: { amount: input.amount },
+        },
+      });
+    },
+  },
+] as const;
