@@ -291,6 +291,28 @@ describe("Order handlers", () => {
     assert.equal(body.country, "US");
   });
 
+  it("ls_generate_order_invoice sends all invoice fields", async () => {
+    const tool = findTool(orderTools, "ls_generate_order_invoice");
+    await tool.handler({
+      orderId: "100",
+      name: "Acme Corp",
+      address: "123 Main St",
+      city: "New York",
+      state: "NY",
+      zipCode: "10001",
+      country: "US",
+      notes: "Thank you for your purchase",
+    });
+    const body = lastRequest!.body as AnyBody;
+    assert.equal(body.name, "Acme Corp");
+    assert.equal(body.address, "123 Main St");
+    assert.equal(body.city, "New York");
+    assert.equal(body.state, "NY");
+    assert.equal(body.zip_code, "10001");
+    assert.equal(body.country, "US");
+    assert.equal(body.notes, "Thank you for your purchase");
+  });
+
   it("ls_refund_order sends POST with refund amount", async () => {
     const tool = findTool(orderTools, "ls_refund_order");
     await tool.handler({ orderId: "100", amount: 500 });
@@ -354,6 +376,29 @@ describe("Subscription handlers", () => {
     assert.deepEqual(body.data.attributes.pause, { mode: "void" });
   });
 
+  it("ls_update_subscription unpause with empty string sets null", async () => {
+    const tool = findTool(subscriptionTools, "ls_update_subscription");
+    await tool.handler({ subscriptionId: "300", pause: "" });
+    const body = lastRequest!.body as AnyBody;
+    assert.equal(body.data.attributes.pause, null);
+  });
+
+  it("ls_update_subscription handles cancelled, trialEndsAt, invoiceImmediately, disableProrations", async () => {
+    const tool = findTool(subscriptionTools, "ls_update_subscription");
+    await tool.handler({
+      subscriptionId: "300",
+      cancelled: false,
+      trialEndsAt: "2026-06-01T00:00:00Z",
+      invoiceImmediately: true,
+      disableProrations: true,
+    });
+    const body = lastRequest!.body as AnyBody;
+    assert.equal(body.data.attributes.cancelled, false);
+    assert.equal(body.data.attributes.trial_ends_at, "2026-06-01T00:00:00Z");
+    assert.equal(body.data.attributes.invoice_immediately, true);
+    assert.equal(body.data.attributes.disable_prorations, true);
+  });
+
   it("ls_cancel_subscription sends DELETE", async () => {
     mockFetch(204);
     const tool = findTool(subscriptionTools, "ls_cancel_subscription");
@@ -383,6 +428,28 @@ describe("Subscription invoice handlers", () => {
     await tool.handler({ subscriptionInvoiceId: "400", name: "Acme" });
     assert.equal(lastRequest!.method, "POST");
     assert.ok(lastRequest!.url.includes("/subscription-invoices/400/generate-invoice"));
+  });
+
+  it("ls_generate_subscription_invoice sends all invoice fields", async () => {
+    const tool = findTool(subscriptionInvoiceTools, "ls_generate_subscription_invoice");
+    await tool.handler({
+      subscriptionInvoiceId: "400",
+      name: "Acme Corp",
+      address: "456 Oak Ave",
+      city: "Chicago",
+      state: "IL",
+      zipCode: "60601",
+      country: "US",
+      notes: "Subscription renewal",
+    });
+    const body = lastRequest!.body as AnyBody;
+    assert.equal(body.name, "Acme Corp");
+    assert.equal(body.address, "456 Oak Ave");
+    assert.equal(body.city, "Chicago");
+    assert.equal(body.state, "IL");
+    assert.equal(body.zip_code, "60601");
+    assert.equal(body.country, "US");
+    assert.equal(body.notes, "Subscription renewal");
   });
 
   it("ls_refund_subscription_invoice sends POST with amount", async () => {
@@ -489,6 +556,30 @@ describe("Discount handlers", () => {
     assert.equal(body.data.attributes.amount_type, "percent");
     assert.equal(body.data.attributes.duration, "once");
     assert.equal(body.data.relationships.store.data.id, "1");
+  });
+
+  it("ls_create_discount with all optional fields", async () => {
+    const tool = findTool(discountTools, "ls_create_discount");
+    await tool.handler({
+      storeId: "1",
+      name: "Repeating Discount",
+      code: "REPEAT5",
+      amount: 500,
+      amountType: "fixed",
+      duration: "repeating",
+      durationInMonths: 3,
+      maxRedemptions: 100,
+      startsAt: "2026-05-01T00:00:00Z",
+      expiresAt: "2026-08-01T00:00:00Z",
+    });
+    const body = lastRequest!.body as AnyBody;
+    assert.equal(body.data.attributes.amount, 500);
+    assert.equal(body.data.attributes.amount_type, "fixed");
+    assert.equal(body.data.attributes.duration, "repeating");
+    assert.equal(body.data.attributes.duration_in_months, 3);
+    assert.equal(body.data.attributes.max_redemptions, 100);
+    assert.equal(body.data.attributes.starts_at, "2026-05-01T00:00:00Z");
+    assert.equal(body.data.attributes.expires_at, "2026-08-01T00:00:00Z");
   });
 
   it("ls_create_discount with variant limitation", async () => {
@@ -629,6 +720,34 @@ describe("Checkout handlers", () => {
     const body = lastRequest!.body as AnyBody;
     assert.deepEqual(body.data.attributes.checkout_data.custom, { ref: "abc123" });
   });
+
+  it("ls_create_checkout with enabledVariants, discountCode, and expiresAt", async () => {
+    const tool = findTool(checkoutTools, "ls_create_checkout");
+    await tool.handler({
+      storeId: "1",
+      variantId: "7",
+      enabledVariants: [7, 8, 9],
+      discountCode: "SAVE10",
+      expiresAt: "2026-12-31T23:59:59Z",
+      taxNumber: "DE123456789",
+    });
+    const body = lastRequest!.body as AnyBody;
+    assert.deepEqual(body.data.attributes.product_options, { enabled_variants: [7, 8, 9] });
+    assert.equal(body.data.attributes.expires_at, "2026-12-31T23:59:59Z");
+    assert.equal(body.data.attributes.checkout_data.discount_code, "SAVE10");
+    assert.equal(body.data.attributes.checkout_data.tax_number, "DE123456789");
+  });
+
+  it("ls_create_checkout falls back to raw string for invalid JSON customData", async () => {
+    const tool = findTool(checkoutTools, "ls_create_checkout");
+    await tool.handler({
+      storeId: "1",
+      variantId: "7",
+      customData: "not-json",
+    });
+    const body = lastRequest!.body as AnyBody;
+    assert.equal(body.data.attributes.checkout_data.custom, "not-json");
+  });
 });
 
 // ─── Webhooks ───
@@ -671,6 +790,19 @@ describe("Webhook handlers", () => {
     assert.equal(body.data.type, "webhooks");
     assert.equal(body.data.id, "1200");
     assert.equal(body.data.attributes.url, "https://new.example.com/hook");
+  });
+
+  it("ls_update_webhook updates events and secret", async () => {
+    const tool = findTool(webhookTools, "ls_update_webhook");
+    await tool.handler({
+      webhookId: "1200",
+      events: ["order_created", "order_refunded", "subscription_cancelled"],
+      secret: "new-secret",
+    });
+    const body = lastRequest!.body as AnyBody;
+    assert.deepEqual(body.data.attributes.events, ["order_created", "order_refunded", "subscription_cancelled"]);
+    assert.equal(body.data.attributes.secret, "new-secret");
+    assert.equal(body.data.attributes.url, undefined);
   });
 
   it("ls_delete_webhook sends DELETE", async () => {
