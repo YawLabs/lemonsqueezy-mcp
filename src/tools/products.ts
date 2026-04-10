@@ -23,7 +23,8 @@ export const productTools = [
   },
   {
     name: "ls_list_products",
-    description: "List all products, optionally filtered by store.",
+    description:
+      "List all products, optionally filtered by store. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List products",
       readOnlyHint: true,
@@ -34,8 +35,8 @@ export const productTools = [
     inputSchema: z.object({
       storeId: z.string().optional().describe("Filter by store ID"),
       include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store,variants')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: { storeId?: string; include?: string; pageNumber?: number; pageSize?: number }) => {
       const filter: Record<string, string> = {};

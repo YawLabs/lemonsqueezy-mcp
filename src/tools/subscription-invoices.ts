@@ -27,7 +27,8 @@ export const subscriptionInvoiceTools = [
   },
   {
     name: "ls_list_subscription_invoices",
-    description: "List all subscription invoices, optionally filtered by store, subscription, or status.",
+    description:
+      "List all subscription invoices, optionally filtered by store, subscription, or status. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List subscription invoices",
       readOnlyHint: true,
@@ -38,20 +39,20 @@ export const subscriptionInvoiceTools = [
     inputSchema: z.object({
       storeId: z.string().optional().describe("Filter by store ID"),
       subscriptionId: z.string().optional().describe("Filter by subscription ID"),
-      status: z.string().optional().describe("Filter by status (pending, paid, void, refunded)"),
-      refunded: z.string().optional().describe("Filter by refunded status ('true' or 'false')"),
+      status: z.enum(["pending", "paid", "void", "refunded"]).optional().describe("Filter by invoice status"),
+      refunded: z.boolean().optional().describe("Filter by refunded status"),
       include: z
         .string()
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,subscription')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       storeId?: string;
       subscriptionId?: string;
       status?: string;
-      refunded?: string;
+      refunded?: boolean;
       include?: string;
       pageNumber?: number;
       pageSize?: number;
@@ -60,7 +61,7 @@ export const subscriptionInvoiceTools = [
       if (input.storeId) filter.store_id = input.storeId;
       if (input.subscriptionId) filter.subscription_id = input.subscriptionId;
       if (input.status) filter.status = input.status;
-      if (input.refunded) filter.refunded = input.refunded;
+      if (input.refunded !== undefined) filter.refunded = String(input.refunded);
       const query = buildQuery({
         include: input.include?.split(","),
         filter,
@@ -88,6 +89,7 @@ export const subscriptionInvoiceTools = [
       zipCode: z.string().optional().describe("Customer ZIP/postal code"),
       country: z.string().optional().describe("Customer country"),
       notes: z.string().optional().describe("Additional notes to include on the invoice"),
+      locale: z.string().optional().describe("Invoice language locale (e.g. 'en', 'fr', 'de')"),
     }),
     handler: async (input: {
       subscriptionInvoiceId: string;
@@ -98,17 +100,19 @@ export const subscriptionInvoiceTools = [
       zipCode?: string;
       country?: string;
       notes?: string;
+      locale?: string;
     }) => {
-      const body: Record<string, unknown> = {};
-      if (input.name !== undefined) body.name = input.name;
-      if (input.address !== undefined) body.address = input.address;
-      if (input.city !== undefined) body.city = input.city;
-      if (input.state !== undefined) body.state = input.state;
-      if (input.zipCode !== undefined) body.zip_code = input.zipCode;
-      if (input.country !== undefined) body.country = input.country;
-      if (input.notes !== undefined) body.notes = input.notes;
-
-      return apiPost(`/subscription-invoices/${input.subscriptionInvoiceId}/generate-invoice`, body);
+      const params = new URLSearchParams();
+      if (input.name !== undefined) params.set("name", input.name);
+      if (input.address !== undefined) params.set("address", input.address);
+      if (input.city !== undefined) params.set("city", input.city);
+      if (input.state !== undefined) params.set("state", input.state);
+      if (input.zipCode !== undefined) params.set("zip_code", input.zipCode);
+      if (input.country !== undefined) params.set("country", input.country);
+      if (input.notes !== undefined) params.set("notes", input.notes);
+      if (input.locale !== undefined) params.set("locale", input.locale);
+      const qs = params.toString();
+      return apiPost(`/subscription-invoices/${input.subscriptionInvoiceId}/generate-invoice${qs ? `?${qs}` : ""}`);
     },
   },
   {
@@ -124,7 +128,7 @@ export const subscriptionInvoiceTools = [
     },
     inputSchema: z.object({
       subscriptionInvoiceId: z.string().describe("The subscription invoice ID to refund"),
-      amount: z.number().describe("Refund amount in cents (e.g. 1000 = $10.00)"),
+      amount: z.number().int().min(1).describe("Refund amount in cents (e.g. 1000 = $10.00)"),
     }),
     handler: async (input: { subscriptionInvoiceId: string; amount: number }) => {
       return apiPost(`/subscription-invoices/${input.subscriptionInvoiceId}/refund`, {

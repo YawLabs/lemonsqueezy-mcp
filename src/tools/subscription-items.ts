@@ -26,7 +26,8 @@ export const subscriptionItemTools = [
   },
   {
     name: "ls_list_subscription_items",
-    description: "List all subscription items, optionally filtered by subscription or price.",
+    description:
+      "List all subscription items, optionally filtered by subscription or price. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List subscription items",
       readOnlyHint: true,
@@ -41,8 +42,8 @@ export const subscriptionItemTools = [
         .string()
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'subscription,price,usage-records')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       subscriptionId?: string;
@@ -74,7 +75,7 @@ export const subscriptionItemTools = [
     },
     inputSchema: z.object({
       subscriptionItemId: z.string().describe("The subscription item ID to update"),
-      quantity: z.number().describe("New quantity for the subscription item"),
+      quantity: z.number().int().min(1).describe("New quantity for the subscription item"),
     }),
     handler: async (input: { subscriptionItemId: string; quantity: number }) => {
       return apiPatch(`/subscription-items/${input.subscriptionItemId}`, {

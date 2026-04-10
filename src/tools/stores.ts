@@ -28,7 +28,8 @@ export const storeTools = [
   },
   {
     name: "ls_list_stores",
-    description: "List all stores for the authenticated user.",
+    description:
+      "List all stores for the authenticated user. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List stores",
       readOnlyHint: true,
@@ -43,8 +44,8 @@ export const storeTools = [
         .describe(
           "Comma-separated related resources to include (e.g. 'products,discounts,license-keys,subscriptions,webhooks')",
         ),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: { include?: string; pageNumber?: number; pageSize?: number }) => {
       const query = buildQuery({

@@ -26,7 +26,8 @@ export const orderItemTools = [
   },
   {
     name: "ls_list_order_items",
-    description: "List all order items, optionally filtered by order or product.",
+    description:
+      "List all order items, optionally filtered by order or product. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List order items",
       readOnlyHint: true,
@@ -42,8 +43,8 @@ export const orderItemTools = [
         .string()
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'order,product,variant')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       orderId?: string;

@@ -28,7 +28,8 @@ export const orderTools = [
   },
   {
     name: "ls_list_orders",
-    description: "List all orders, optionally filtered by store, email, or user email.",
+    description:
+      "List all orders, optionally filtered by store or user email. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List orders",
       readOnlyHint: true,
@@ -45,8 +46,8 @@ export const orderTools = [
         .describe(
           "Comma-separated related resources to include (e.g. 'store,customer,order-items,subscriptions,license-keys,discount-redemptions')",
         ),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       storeId?: string;
@@ -85,6 +86,7 @@ export const orderTools = [
       zipCode: z.string().optional().describe("Customer ZIP/postal code"),
       country: z.string().optional().describe("Customer country"),
       notes: z.string().optional().describe("Additional notes to include on the invoice"),
+      locale: z.string().optional().describe("Invoice language locale (e.g. 'en', 'fr', 'de')"),
     }),
     handler: async (input: {
       orderId: string;
@@ -95,17 +97,19 @@ export const orderTools = [
       zipCode?: string;
       country?: string;
       notes?: string;
+      locale?: string;
     }) => {
-      const body: Record<string, unknown> = {};
-      if (input.name !== undefined) body.name = input.name;
-      if (input.address !== undefined) body.address = input.address;
-      if (input.city !== undefined) body.city = input.city;
-      if (input.state !== undefined) body.state = input.state;
-      if (input.zipCode !== undefined) body.zip_code = input.zipCode;
-      if (input.country !== undefined) body.country = input.country;
-      if (input.notes !== undefined) body.notes = input.notes;
-
-      return apiPost(`/orders/${input.orderId}/generate-invoice`, body);
+      const params = new URLSearchParams();
+      if (input.name !== undefined) params.set("name", input.name);
+      if (input.address !== undefined) params.set("address", input.address);
+      if (input.city !== undefined) params.set("city", input.city);
+      if (input.state !== undefined) params.set("state", input.state);
+      if (input.zipCode !== undefined) params.set("zip_code", input.zipCode);
+      if (input.country !== undefined) params.set("country", input.country);
+      if (input.notes !== undefined) params.set("notes", input.notes);
+      if (input.locale !== undefined) params.set("locale", input.locale);
+      const qs = params.toString();
+      return apiPost(`/orders/${input.orderId}/generate-invoice${qs ? `?${qs}` : ""}`);
     },
   },
   {
@@ -121,7 +125,7 @@ export const orderTools = [
     },
     inputSchema: z.object({
       orderId: z.string().describe("The order ID to refund"),
-      amount: z.number().describe("Refund amount in cents (e.g. 1000 = $10.00)"),
+      amount: z.number().int().min(1).describe("Refund amount in cents (e.g. 1000 = $10.00)"),
     }),
     handler: async (input: { orderId: string; amount: number }) => {
       return apiPost(`/orders/${input.orderId}/refund`, {

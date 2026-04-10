@@ -29,7 +29,8 @@ export const subscriptionTools = [
   },
   {
     name: "ls_list_subscriptions",
-    description: "List all subscriptions, optionally filtered by store, order, product, variant, or status.",
+    description:
+      "List all subscriptions, optionally filtered by store, order, product, variant, or status. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List subscriptions",
       readOnlyHint: true,
@@ -45,17 +46,17 @@ export const subscriptionTools = [
       variantId: z.string().optional().describe("Filter by variant ID"),
       userEmail: z.string().optional().describe("Filter by user email"),
       status: z
-        .string()
+        .enum(["on_trial", "active", "paused", "past_due", "unpaid", "cancelled", "expired"])
         .optional()
-        .describe("Filter by status (on_trial, active, paused, past_due, unpaid, cancelled, expired)"),
+        .describe("Filter by subscription status"),
       include: z
         .string()
         .optional()
         .describe(
           "Comma-separated related resources to include (e.g. 'store,customer,order,order-item,product,variant')",
         ),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       storeId?: string;
@@ -98,13 +99,18 @@ export const subscriptionTools = [
     },
     inputSchema: z.object({
       subscriptionId: z.string().describe("The subscription ID to update"),
-      variantId: z.number().optional().describe("New variant ID for plan switching"),
+      variantId: z.string().optional().describe("New variant ID for plan switching"),
       pause: z
-        .string()
+        .enum(["void", "free", "resume"])
         .optional()
-        .describe("Pause mode: 'void' (pause immediately, no invoice) or 'free' (pause immediately, no charge)"),
-      cancelled: z.boolean().optional().describe("Set to false to resume a cancelled subscription (before it expires)"),
-      billingAnchor: z.number().optional().describe("Day of month (1-28) to anchor billing to"),
+        .describe("Pause mode: 'void' (pause, skip billing), 'free' (pause, keep access free), or 'resume' to unpause"),
+      cancelled: z
+        .literal(false)
+        .optional()
+        .describe(
+          "Set to false to un-cancel a subscription before it expires. To cancel, use ls_cancel_subscription instead.",
+        ),
+      billingAnchor: z.number().int().min(1).max(28).optional().describe("Day of month (1-28) to anchor billing to"),
       invoiceImmediately: z
         .boolean()
         .optional()
@@ -117,17 +123,17 @@ export const subscriptionTools = [
     }),
     handler: async (input: {
       subscriptionId: string;
-      variantId?: number;
+      variantId?: string;
       pause?: string;
-      cancelled?: boolean;
+      cancelled?: false;
       billingAnchor?: number;
       invoiceImmediately?: boolean;
       disableProrations?: boolean;
       trialEndsAt?: string;
     }) => {
       const attributes: Record<string, unknown> = {};
-      if (input.variantId !== undefined) attributes.variant_id = input.variantId;
-      if (input.pause !== undefined) attributes.pause = input.pause === "" ? null : { mode: input.pause };
+      if (input.variantId !== undefined) attributes.variant_id = Number(input.variantId);
+      if (input.pause !== undefined) attributes.pause = input.pause === "resume" ? null : { mode: input.pause };
       if (input.cancelled !== undefined) attributes.cancelled = input.cancelled;
       if (input.billingAnchor !== undefined) attributes.billing_anchor = input.billingAnchor;
       if (input.invoiceImmediately !== undefined) attributes.invoice_immediately = input.invoiceImmediately;

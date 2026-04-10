@@ -28,7 +28,8 @@ export const licenseKeyTools = [
   },
   {
     name: "ls_list_license_keys",
-    description: "List all license keys, optionally filtered by store, order, or product.",
+    description:
+      "List all license keys, optionally filtered by store, order, or product. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List license keys",
       readOnlyHint: true,
@@ -47,8 +48,8 @@ export const licenseKeyTools = [
         .describe(
           "Comma-separated related resources to include (e.g. 'store,customer,order,order-item,product,license-key-instances')",
         ),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       storeId?: string;
@@ -84,7 +85,12 @@ export const licenseKeyTools = [
     },
     inputSchema: z.object({
       licenseKeyId: z.string().describe("The license key ID to update"),
-      activationLimit: z.number().optional().describe("Maximum number of activations allowed (0 = unlimited)"),
+      activationLimit: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("Maximum number of activations allowed (0 = unlimited)"),
       disabled: z.boolean().optional().describe("Set to true to disable this license key"),
       expiresAt: z.string().optional().describe("Expiry date (ISO 8601 format). Set to null to remove expiry."),
     }),

@@ -41,7 +41,7 @@ export const licenseTools = [
     }),
     handler: async (input: { licenseKey: string; instanceId?: string }) => {
       const body: Record<string, string> = { license_key: input.licenseKey };
-      if (input.instanceId) body.instance_id = input.instanceId;
+      if (input.instanceId !== undefined) body.instance_id = input.instanceId;
       return licenseRequest("/licenses/validate", body);
     },
   },

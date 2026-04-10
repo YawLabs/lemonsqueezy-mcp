@@ -35,7 +35,7 @@ export function buildQuery(params?: {
   const parts: string[] = [];
 
   if (params.include?.length) {
-    parts.push(`include=${encodeURIComponent(params.include.join(","))}`);
+    parts.push(`include=${encodeURIComponent(params.include.map((s) => s.trim()).join(","))}`);
   }
 
   if (params.filter) {
@@ -70,16 +70,29 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
 
   const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: fetchBody,
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: fetchBody,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      return { ok: false, status: 0, error: `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s` };
+    }
+    throw err;
+  }
 
   if (!res.ok) {
     const errorBody = await res.text();
-    return { ok: false, status: res.status, error: errorBody };
+    try {
+      const parsed = JSON.parse(errorBody);
+      return { ok: false, status: res.status, data: parsed, error: parsed.errors?.[0]?.detail ?? errorBody };
+    } catch {
+      return { ok: false, status: res.status, error: errorBody };
+    }
   }
 
   if (res.status === 204 || res.headers.get("content-length") === "0") {
@@ -97,19 +110,32 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
 export async function licenseRequest<T = unknown>(path: string, body: Record<string, string>): Promise<ApiResponse<T>> {
   const url = `${BASE_URL}${path}`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams(body),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      return { ok: false, status: 0, error: `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s` };
+    }
+    throw err;
+  }
 
   if (!res.ok) {
     const errorBody = await res.text();
-    return { ok: false, status: res.status, error: errorBody };
+    try {
+      const parsed = JSON.parse(errorBody);
+      return { ok: false, status: res.status, data: parsed, error: parsed.error ?? errorBody };
+    } catch {
+      return { ok: false, status: res.status, error: errorBody };
+    }
   }
 
   const data = (await res.json()) as T;

@@ -23,7 +23,8 @@ export const discountRedemptionTools = [
   },
   {
     name: "ls_list_discount_redemptions",
-    description: "List all discount redemptions, optionally filtered by discount or order.",
+    description:
+      "List all discount redemptions, optionally filtered by discount or order. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List discount redemptions",
       readOnlyHint: true,
@@ -35,8 +36,8 @@ export const discountRedemptionTools = [
       discountId: z.string().optional().describe("Filter by discount ID"),
       orderId: z.string().optional().describe("Filter by order ID"),
       include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'discount,order')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       discountId?: string;

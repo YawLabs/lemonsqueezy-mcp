@@ -281,17 +281,17 @@ describe("Order handlers", () => {
     assert.ok(lastRequest!.url.includes("filter[user_email]=a%40b.com"));
   });
 
-  it("ls_generate_order_invoice sends POST with invoice details", async () => {
+  it("ls_generate_order_invoice sends POST with invoice details as query params", async () => {
     const tool = findTool(orderTools, "ls_generate_order_invoice");
     await tool.handler({ orderId: "100", name: "Acme", country: "US" });
     assert.equal(lastRequest!.method, "POST");
-    assert.ok(lastRequest!.url.includes("/orders/100/generate-invoice"));
-    const body = lastRequest!.body as AnyBody;
-    assert.equal(body.name, "Acme");
-    assert.equal(body.country, "US");
+    assert.ok(lastRequest!.url.includes("/orders/100/generate-invoice?"));
+    assert.ok(lastRequest!.url.includes("name=Acme"));
+    assert.ok(lastRequest!.url.includes("country=US"));
+    assert.equal(lastRequest!.body, undefined);
   });
 
-  it("ls_generate_order_invoice sends all invoice fields", async () => {
+  it("ls_generate_order_invoice sends all invoice fields as query params", async () => {
     const tool = findTool(orderTools, "ls_generate_order_invoice");
     await tool.handler({
       orderId: "100",
@@ -303,14 +303,15 @@ describe("Order handlers", () => {
       country: "US",
       notes: "Thank you for your purchase",
     });
-    const body = lastRequest!.body as AnyBody;
-    assert.equal(body.name, "Acme Corp");
-    assert.equal(body.address, "123 Main St");
-    assert.equal(body.city, "New York");
-    assert.equal(body.state, "NY");
-    assert.equal(body.zip_code, "10001");
-    assert.equal(body.country, "US");
-    assert.equal(body.notes, "Thank you for your purchase");
+    const url = lastRequest!.url;
+    assert.ok(url.includes("name=Acme+Corp"));
+    assert.ok(url.includes("address=123+Main+St"));
+    assert.ok(url.includes("city=New+York"));
+    assert.ok(url.includes("state=NY"));
+    assert.ok(url.includes("zip_code=10001"));
+    assert.ok(url.includes("country=US"));
+    assert.ok(url.includes("notes=Thank+you+for+your+purchase"));
+    assert.equal(lastRequest!.body, undefined);
   });
 
   it("ls_refund_order sends POST with refund amount", async () => {
@@ -365,7 +366,7 @@ describe("Subscription handlers", () => {
     const body = lastRequest!.body as AnyBody;
     assert.equal(body.data.type, "subscriptions");
     assert.equal(body.data.id, "300");
-    assert.equal(body.data.attributes.variant_id, "8");
+    assert.equal(body.data.attributes.variant_id, 8);
     assert.equal(body.data.attributes.billing_anchor, 15);
   });
 
@@ -376,9 +377,9 @@ describe("Subscription handlers", () => {
     assert.deepEqual(body.data.attributes.pause, { mode: "void" });
   });
 
-  it("ls_update_subscription unpause with empty string sets null", async () => {
+  it("ls_update_subscription unpause with 'resume' sets null", async () => {
     const tool = findTool(subscriptionTools, "ls_update_subscription");
-    await tool.handler({ subscriptionId: "300", pause: "" });
+    await tool.handler({ subscriptionId: "300", pause: "resume" });
     const body = lastRequest!.body as AnyBody;
     assert.equal(body.data.attributes.pause, null);
   });
@@ -423,14 +424,16 @@ describe("Subscription invoice handlers", () => {
     assert.ok(lastRequest!.url.includes("filter[status]=paid"));
   });
 
-  it("ls_generate_subscription_invoice sends POST", async () => {
+  it("ls_generate_subscription_invoice sends POST with query params", async () => {
     const tool = findTool(subscriptionInvoiceTools, "ls_generate_subscription_invoice");
     await tool.handler({ subscriptionInvoiceId: "400", name: "Acme" });
     assert.equal(lastRequest!.method, "POST");
-    assert.ok(lastRequest!.url.includes("/subscription-invoices/400/generate-invoice"));
+    assert.ok(lastRequest!.url.includes("/subscription-invoices/400/generate-invoice?"));
+    assert.ok(lastRequest!.url.includes("name=Acme"));
+    assert.equal(lastRequest!.body, undefined);
   });
 
-  it("ls_generate_subscription_invoice sends all invoice fields", async () => {
+  it("ls_generate_subscription_invoice sends all invoice fields as query params", async () => {
     const tool = findTool(subscriptionInvoiceTools, "ls_generate_subscription_invoice");
     await tool.handler({
       subscriptionInvoiceId: "400",
@@ -442,14 +445,15 @@ describe("Subscription invoice handlers", () => {
       country: "US",
       notes: "Subscription renewal",
     });
-    const body = lastRequest!.body as AnyBody;
-    assert.equal(body.name, "Acme Corp");
-    assert.equal(body.address, "456 Oak Ave");
-    assert.equal(body.city, "Chicago");
-    assert.equal(body.state, "IL");
-    assert.equal(body.zip_code, "60601");
-    assert.equal(body.country, "US");
-    assert.equal(body.notes, "Subscription renewal");
+    const url = lastRequest!.url;
+    assert.ok(url.includes("name=Acme+Corp"));
+    assert.ok(url.includes("address=456+Oak+Ave"));
+    assert.ok(url.includes("city=Chicago"));
+    assert.ok(url.includes("state=IL"));
+    assert.ok(url.includes("zip_code=60601"));
+    assert.ok(url.includes("country=US"));
+    assert.ok(url.includes("notes=Subscription+renewal"));
+    assert.equal(lastRequest!.body, undefined);
   });
 
   it("ls_refund_subscription_invoice sends POST with amount", async () => {
@@ -591,7 +595,7 @@ describe("Discount handlers", () => {
       amount: 10,
       amountType: "percent",
       isLimitedToProducts: true,
-      variantIds: [1, 2, 3],
+      variantIds: ["1", "2", "3"],
     });
     const body = lastRequest!.body as AnyBody;
     assert.equal(body.data.attributes.is_limited_to_products, true);
@@ -710,12 +714,12 @@ describe("Checkout handlers", () => {
     assert.equal(body.data.attributes.checkout_data.billing_address.zip, "10001");
   });
 
-  it("ls_create_checkout parses custom JSON data", async () => {
+  it("ls_create_checkout passes custom data object", async () => {
     const tool = findTool(checkoutTools, "ls_create_checkout");
     await tool.handler({
       storeId: "1",
       variantId: "7",
-      customData: '{"ref":"abc123"}',
+      customData: { ref: "abc123" },
     });
     const body = lastRequest!.body as AnyBody;
     assert.deepEqual(body.data.attributes.checkout_data.custom, { ref: "abc123" });
@@ -726,27 +730,27 @@ describe("Checkout handlers", () => {
     await tool.handler({
       storeId: "1",
       variantId: "7",
-      enabledVariants: [7, 8, 9],
+      enabledVariants: ["7", "8", "9"],
       discountCode: "SAVE10",
       expiresAt: "2026-12-31T23:59:59Z",
       taxNumber: "DE123456789",
     });
     const body = lastRequest!.body as AnyBody;
-    assert.deepEqual(body.data.attributes.product_options, { enabled_variants: [7, 8, 9] });
+    assert.deepEqual(body.data.attributes.product_options, { enabled_variants: ["7", "8", "9"] });
     assert.equal(body.data.attributes.expires_at, "2026-12-31T23:59:59Z");
     assert.equal(body.data.attributes.checkout_data.discount_code, "SAVE10");
     assert.equal(body.data.attributes.checkout_data.tax_number, "DE123456789");
   });
 
-  it("ls_create_checkout falls back to raw string for invalid JSON customData", async () => {
+  it("ls_create_checkout passes nested custom data object", async () => {
     const tool = findTool(checkoutTools, "ls_create_checkout");
     await tool.handler({
       storeId: "1",
       variantId: "7",
-      customData: "not-json",
+      customData: { campaign: "summer", tier: 2 },
     });
     const body = lastRequest!.body as AnyBody;
-    assert.equal(body.data.attributes.checkout_data.custom, "not-json");
+    assert.deepEqual(body.data.attributes.checkout_data.custom, { campaign: "summer", tier: 2 });
   });
 });
 

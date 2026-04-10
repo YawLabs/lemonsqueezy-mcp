@@ -27,7 +27,8 @@ export const customerTools = [
   },
   {
     name: "ls_list_customers",
-    description: "List all customers, optionally filtered by store or email.",
+    description:
+      "List all customers, optionally filtered by store or email. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List customers",
       readOnlyHint: true,
@@ -42,8 +43,8 @@ export const customerTools = [
         .string()
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,orders,subscriptions,license-keys')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       storeId?: string;
@@ -93,9 +94,9 @@ export const customerTools = [
         name: input.name,
         email: input.email,
       };
-      if (input.city) attributes.city = input.city;
-      if (input.region) attributes.region = input.region;
-      if (input.country) attributes.country = input.country;
+      if (input.city !== undefined) attributes.city = input.city;
+      if (input.region !== undefined) attributes.region = input.region;
+      if (input.country !== undefined) attributes.country = input.country;
 
       return apiPost("/customers", {
         data: {

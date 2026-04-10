@@ -23,7 +23,8 @@ export const licenseKeyInstanceTools = [
   },
   {
     name: "ls_list_license_key_instances",
-    description: "List all license key instances (activations), optionally filtered by license key.",
+    description:
+      "List all license key instances (activations), optionally filtered by license key. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List license key instances",
       readOnlyHint: true,
@@ -34,8 +35,8 @@ export const licenseKeyInstanceTools = [
     inputSchema: z.object({
       licenseKeyId: z.string().optional().describe("Filter by license key ID"),
       include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'license-key')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       licenseKeyId?: string;

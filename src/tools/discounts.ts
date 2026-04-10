@@ -26,7 +26,8 @@ export const discountTools = [
   },
   {
     name: "ls_list_discounts",
-    description: "List all discounts, optionally filtered by store.",
+    description:
+      "List all discounts, optionally filtered by store. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List discounts",
       readOnlyHint: true,
@@ -40,8 +41,8 @@ export const discountTools = [
         .string()
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,variants,discount-redemptions')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: { storeId?: string; include?: string; pageNumber?: number; pageSize?: number }) => {
       const filter: Record<string, string> = {};
@@ -71,22 +72,28 @@ export const discountTools = [
       code: z.string().describe("The discount code customers will enter (e.g. 'SAVE20')"),
       amount: z
         .number()
+        .int()
+        .min(1)
         .describe(
           "Discount amount — in cents for 'fixed' type (e.g. 1000 = $10.00), or percentage for 'percent' type (e.g. 20 = 20%)",
         ),
-      amountType: z.string().describe("Discount type: 'percent' or 'fixed'"),
+      amountType: z.enum(["percent", "fixed"]).describe("Discount type: 'percent' or 'fixed'"),
       duration: z
-        .string()
+        .enum(["once", "repeating", "forever"])
         .optional()
         .describe(
           "How long the discount applies: 'once' (first payment only), 'repeating' (for N months), or 'forever' (default)",
         ),
       durationInMonths: z
         .number()
+        .int()
+        .min(1)
         .optional()
         .describe("Number of months the discount applies (required when duration is 'repeating')"),
       maxRedemptions: z
         .number()
+        .int()
+        .min(0)
         .optional()
         .describe("Maximum number of times this discount can be redeemed (0 = unlimited)"),
       startsAt: z.string().optional().describe("When the discount becomes active (ISO 8601 format)"),
@@ -96,7 +103,7 @@ export const discountTools = [
         .optional()
         .describe("If true, the discount only applies to specific variants (set via variantIds)"),
       variantIds: z
-        .array(z.number())
+        .array(z.string())
         .optional()
         .describe("Array of variant IDs this discount applies to (requires isLimitedToProducts: true)"),
     }),
@@ -112,7 +119,7 @@ export const discountTools = [
       startsAt?: string;
       expiresAt?: string;
       isLimitedToProducts?: boolean;
-      variantIds?: number[];
+      variantIds?: string[];
     }) => {
       const attributes: Record<string, unknown> = {
         name: input.name,
@@ -133,7 +140,7 @@ export const discountTools = [
 
       if (input.variantIds?.length) {
         relationships.variants = {
-          data: input.variantIds.map((id) => ({ type: "variants", id: String(id) })),
+          data: input.variantIds.map((id) => ({ type: "variants", id })),
         };
       }
 

@@ -23,7 +23,8 @@ export const checkoutTools = [
   },
   {
     name: "ls_list_checkouts",
-    description: "List all checkouts, optionally filtered by store or variant.",
+    description:
+      "List all checkouts, optionally filtered by store or variant. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List checkouts",
       readOnlyHint: true,
@@ -35,8 +36,8 @@ export const checkoutTools = [
       storeId: z.string().optional().describe("Filter by store ID"),
       variantId: z.string().optional().describe("Filter by variant ID"),
       include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store,variant')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       storeId?: string;
@@ -70,9 +71,9 @@ export const checkoutTools = [
     inputSchema: z.object({
       storeId: z.string().describe("The store ID"),
       variantId: z.string().describe("The variant ID for the product being purchased"),
-      customPrice: z.number().optional().describe("Custom price in cents (overrides the variant price)"),
+      customPrice: z.number().int().min(0).optional().describe("Custom price in cents (overrides the variant price)"),
       enabledVariants: z
-        .array(z.number())
+        .array(z.string())
         .optional()
         .describe("Array of variant IDs to show on the checkout (for products with multiple variants)"),
       email: z.string().optional().describe("Prefill customer email"),
@@ -81,27 +82,27 @@ export const checkoutTools = [
       billingAddressZip: z.string().optional().describe("Prefill billing ZIP/postal code"),
       taxNumber: z.string().optional().describe("Prefill tax/VAT number"),
       discountCode: z.string().optional().describe("Pre-apply a discount code"),
-      customData: z.string().optional().describe("Custom JSON data to attach to the order (as a JSON string)"),
+      customData: z.record(z.unknown()).optional().describe("Custom data object to attach to the order"),
       expiresAt: z.string().optional().describe("Checkout expiry date (ISO 8601 format)"),
     }),
     handler: async (input: {
       storeId: string;
       variantId: string;
       customPrice?: number;
-      enabledVariants?: number[];
+      enabledVariants?: string[];
       email?: string;
       name?: string;
       billingAddressCountry?: string;
       billingAddressZip?: string;
       taxNumber?: string;
       discountCode?: string;
-      customData?: string;
+      customData?: Record<string, unknown>;
       expiresAt?: string;
     }) => {
       const attributes: Record<string, unknown> = {};
 
       if (input.customPrice !== undefined) attributes.custom_price = input.customPrice;
-      if (input.enabledVariants) attributes.product_options = { enabled_variants: input.enabledVariants };
+      if (input.enabledVariants !== undefined) attributes.product_options = { enabled_variants: input.enabledVariants };
       if (input.expiresAt !== undefined) attributes.expires_at = input.expiresAt;
 
       const checkoutData: Record<string, unknown> = {};
@@ -118,11 +119,7 @@ export const checkoutTools = [
       if (input.taxNumber !== undefined) checkoutData.tax_number = input.taxNumber;
       if (input.discountCode !== undefined) checkoutData.discount_code = input.discountCode;
       if (input.customData !== undefined) {
-        try {
-          checkoutData.custom = JSON.parse(input.customData);
-        } catch {
-          checkoutData.custom = input.customData;
-        }
+        checkoutData.custom = input.customData;
       }
 
       if (Object.keys(checkoutData).length > 0) attributes.checkout_data = checkoutData;

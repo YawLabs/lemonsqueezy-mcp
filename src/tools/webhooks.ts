@@ -23,7 +23,8 @@ export const webhookTools = [
   },
   {
     name: "ls_list_webhooks",
-    description: "List all webhooks, optionally filtered by store.",
+    description:
+      "List all webhooks, optionally filtered by store. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List webhooks",
       readOnlyHint: true,
@@ -34,8 +35,8 @@ export const webhookTools = [
     inputSchema: z.object({
       storeId: z.string().optional().describe("Filter by store ID"),
       include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: { storeId?: string; include?: string; pageNumber?: number; pageSize?: number }) => {
       const filter: Record<string, string> = {};
@@ -67,7 +68,7 @@ export const webhookTools = [
         .describe(
           "Event types to subscribe to (e.g. ['order_created', 'subscription_created', 'subscription_updated', 'subscription_cancelled', 'subscription_payment_success', 'subscription_payment_failed', 'license_key_created'])",
         ),
-      secret: z.string().describe("A signing secret for verifying webhook payloads (min 6, max 40 characters)"),
+      secret: z.string().min(6).max(40).describe("A signing secret for verifying webhook payloads"),
     }),
     handler: async (input: { storeId: string; url: string; events: string[]; secret: string }) => {
       return apiPost("/webhooks", {

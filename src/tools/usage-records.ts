@@ -26,7 +26,8 @@ export const usageRecordTools = [
   },
   {
     name: "ls_list_usage_records",
-    description: "List all usage records, optionally filtered by subscription item.",
+    description:
+      "List all usage records, optionally filtered by subscription item. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
       title: "List usage records",
       readOnlyHint: true,
@@ -40,8 +41,8 @@ export const usageRecordTools = [
         .string()
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'subscription-item')"),
-      pageNumber: z.number().optional().describe("Page number (1-indexed)"),
-      pageSize: z.number().optional().describe("Results per page (1-100)"),
+      pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
+      pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
     handler: async (input: {
       subscriptionItemId?: string;
@@ -72,9 +73,9 @@ export const usageRecordTools = [
     },
     inputSchema: z.object({
       subscriptionItemId: z.string().describe("The subscription item ID to report usage for"),
-      quantity: z.number().describe("The usage quantity to report"),
+      quantity: z.number().int().min(0).describe("The usage quantity to report"),
       action: z
-        .string()
+        .enum(["increment", "set"])
         .optional()
         .describe("How to apply the quantity: 'increment' (add to current, default) or 'set' (replace current)"),
     }),
@@ -82,7 +83,7 @@ export const usageRecordTools = [
       const attributes: Record<string, unknown> = {
         quantity: input.quantity,
       };
-      if (input.action) attributes.action = input.action;
+      if (input.action !== undefined) attributes.action = input.action;
 
       return apiPost("/usage-records", {
         data: {
