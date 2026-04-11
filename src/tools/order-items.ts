@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, buildQuery } from "../api.js";
+import { getHandler, listHandler } from "../api.js";
 
 export const orderItemTools = [
   {
@@ -19,10 +19,7 @@ export const orderItemTools = [
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'order,product,variant')"),
     }),
-    handler: async (input: { orderItemId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/order-items/${input.orderItemId}${query}`);
-    },
+    handler: getHandler("/order-items", "orderItemId"),
   },
   {
     name: "ls_list_order_items",
@@ -46,24 +43,6 @@ export const orderItemTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: {
-      orderId?: string;
-      productId?: string;
-      variantId?: string;
-      include?: string;
-      pageNumber?: number;
-      pageSize?: number;
-    }) => {
-      const filter: Record<string, string> = {};
-      if (input.orderId) filter.order_id = input.orderId;
-      if (input.productId) filter.product_id = input.productId;
-      if (input.variantId) filter.variant_id = input.variantId;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/order-items${query}`);
-    },
+    handler: listHandler("/order-items", { orderId: "order_id", productId: "product_id", variantId: "variant_id" }),
   },
 ] as const;

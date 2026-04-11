@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, buildQuery } from "../api.js";
+import { getHandler, listHandler } from "../api.js";
 
 export const licenseKeyInstanceTools = [
   {
@@ -16,10 +16,7 @@ export const licenseKeyInstanceTools = [
       licenseKeyInstanceId: z.string().describe("The license key instance ID"),
       include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'license-key')"),
     }),
-    handler: async (input: { licenseKeyInstanceId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/license-key-instances/${input.licenseKeyInstanceId}${query}`);
-    },
+    handler: getHandler("/license-key-instances", "licenseKeyInstanceId"),
   },
   {
     name: "ls_list_license_key_instances",
@@ -38,20 +35,6 @@ export const licenseKeyInstanceTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: {
-      licenseKeyId?: string;
-      include?: string;
-      pageNumber?: number;
-      pageSize?: number;
-    }) => {
-      const filter: Record<string, string> = {};
-      if (input.licenseKeyId) filter.license_key_id = input.licenseKeyId;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/license-key-instances${query}`);
-    },
+    handler: listHandler("/license-key-instances", { licenseKeyId: "license_key_id" }),
   },
 ] as const;

@@ -893,6 +893,147 @@ describe("Error handling", () => {
     await assert.rejects(() => tool.handler({ customerId: "1" }), /LEMONSQUEEZY_API_KEY/);
     process.env.LEMONSQUEEZY_API_KEY = saved;
   });
+
+  it("throws when API key is empty", async () => {
+    const saved = process.env.LEMONSQUEEZY_API_KEY;
+    process.env.LEMONSQUEEZY_API_KEY = "   ";
+    const tool = findTool(customerTools, "ls_get_customer");
+    await assert.rejects(() => tool.handler({ customerId: "1" }), /empty/);
+    process.env.LEMONSQUEEZY_API_KEY = saved;
+  });
+
+  it("parses JSON:API error detail from 4xx response", async () => {
+    globalThis.fetch = (async () => {
+      return new Response('{"errors":[{"detail":"Variant not found","status":"404"}]}', {
+        status: 404,
+      });
+    }) as typeof fetch;
+
+    const tool = findTool(productTools, "ls_get_product");
+    const result = (await tool.handler({ productId: "999" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 404);
+    assert.equal(result.error, "Variant not found");
+  });
+
+  it("falls back to raw text when error response is not JSON", async () => {
+    globalThis.fetch = (async () => {
+      return new Response("Service Unavailable", { status: 503 });
+    }) as typeof fetch;
+
+    const tool = findTool(storeTools, "ls_get_store");
+    const result = (await tool.handler({ storeId: "1" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 503);
+    assert.equal(result.error, "Service Unavailable");
+  });
+
+  it("returns timeout error when request exceeds timeout", async () => {
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      // Simulate AbortSignal.timeout by throwing TimeoutError
+      const err = new DOMException("Signal timed out", "TimeoutError");
+      throw err;
+    }) as typeof fetch;
+
+    const tool = findTool(storeTools, "ls_get_store");
+    const result = (await tool.handler({ storeId: "1" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 0);
+    assert.ok(result.error.includes("timed out"));
+  });
+
+  it("rethrows non-timeout fetch errors", async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError("fetch failed");
+    }) as typeof fetch;
+
+    const tool = findTool(storeTools, "ls_get_store");
+    await assert.rejects(() => tool.handler({ storeId: "1" }), /fetch failed/);
+  });
+
+  it("handles 500 server error with JSON body", async () => {
+    globalThis.fetch = (async () => {
+      return new Response('{"errors":[{"detail":"Internal server error"}]}', { status: 500 });
+    }) as typeof fetch;
+
+    const tool = findTool(orderTools, "ls_list_orders");
+    const result = (await tool.handler({})) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 500);
+    assert.equal(result.error, "Internal server error");
+  });
+
+  it("handles 204 No Content response", async () => {
+    mockFetch(204);
+    const tool = findTool(discountTools, "ls_delete_discount");
+    const result = (await tool.handler({ discountId: "1" })) as AnyBody;
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 204);
+    assert.equal(result.data, undefined);
+  });
+
+  it("handles 429 rate limit response", async () => {
+    globalThis.fetch = (async () => {
+      return new Response('{"errors":[{"detail":"Too many requests"}]}', { status: 429 });
+    }) as typeof fetch;
+
+    const tool = findTool(storeTools, "ls_list_stores");
+    const result = (await tool.handler({})) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 429);
+    assert.equal(result.error, "Too many requests");
+  });
+});
+
+// ─── License API error handling ───
+
+describe("License API error handling", () => {
+  it("parses license API error field", async () => {
+    globalThis.fetch = (async () => {
+      return new Response('{"error":"Invalid license key"}', { status: 400 });
+    }) as typeof fetch;
+
+    const tool = findTool(licenseTools, "ls_validate_license");
+    const result = (await tool.handler({ licenseKey: "BAD-KEY" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 400);
+    assert.equal(result.error, "Invalid license key");
+  });
+
+  it("parses license API errors array (normalized)", async () => {
+    globalThis.fetch = (async () => {
+      return new Response('{"errors":[{"detail":"License expired"}]}', { status: 422 });
+    }) as typeof fetch;
+
+    const tool = findTool(licenseTools, "ls_activate_license");
+    const result = (await tool.handler({ licenseKey: "EXP", instanceName: "m1" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "License expired");
+  });
+
+  it("handles license API timeout", async () => {
+    globalThis.fetch = (async () => {
+      throw new DOMException("Signal timed out", "TimeoutError");
+    }) as typeof fetch;
+
+    const tool = findTool(licenseTools, "ls_activate_license");
+    const result = (await tool.handler({ licenseKey: "K", instanceName: "m" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 0);
+    assert.ok(result.error.includes("timed out"));
+  });
+
+  it("falls back to raw text for non-JSON license error", async () => {
+    globalThis.fetch = (async () => {
+      return new Response("Bad Gateway", { status: 502 });
+    }) as typeof fetch;
+
+    const tool = findTool(licenseTools, "ls_deactivate_license");
+    const result = (await tool.handler({ licenseKey: "K", instanceId: "i" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 502);
+    assert.equal(result.error, "Bad Gateway");
+  });
 });
 
 // ─── API client: buildQuery ───
@@ -932,5 +1073,31 @@ describe("buildQuery", () => {
     assert.ok(q.includes("filter[status]=active"));
     assert.ok(q.includes("page[number]=1"));
     assert.ok(q.includes("page[size]=10"));
+  });
+
+  it("returns empty string for empty arrays and objects", () => {
+    assert.equal(buildQuery({ include: [] }), "");
+    assert.equal(buildQuery({ filter: {} }), "");
+    assert.equal(buildQuery({ include: [], filter: {}, page: {} }), "");
+  });
+
+  it("skips undefined page fields", () => {
+    const q = buildQuery({ page: { number: 3 } });
+    assert.ok(q.includes("page[number]=3"));
+    assert.ok(!q.includes("page[size]"));
+  });
+
+  it("trims whitespace from include values", () => {
+    const q = buildQuery({ include: [" store ", " orders "] });
+    assert.equal(q, "?include=store%2Corders");
+  });
+
+  it("encodes special characters in filter keys and values", () => {
+    const q = buildQuery({ filter: { "field name": "value&more=yes" } });
+    assert.ok(q.includes("filter[field%20name]=value%26more%3Dyes"));
+  });
+
+  it("handles single include value", () => {
+    assert.equal(buildQuery({ include: ["store"] }), "?include=store");
   });
 });

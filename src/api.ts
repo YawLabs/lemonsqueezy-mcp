@@ -95,7 +95,7 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
     }
   }
 
-  if (res.status === 204 || res.headers.get("content-length") === "0") {
+  if (res.status === 204) {
     return { ok: true, status: res.status };
   }
 
@@ -132,7 +132,12 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
     const errorBody = await res.text();
     try {
       const parsed = JSON.parse(errorBody);
-      return { ok: false, status: res.status, data: parsed, error: parsed.error ?? errorBody };
+      return {
+        ok: false,
+        status: res.status,
+        data: parsed,
+        error: parsed.errors?.[0]?.detail ?? parsed.error ?? errorBody,
+      };
     } catch {
       return { ok: false, status: res.status, error: errorBody };
     }
@@ -140,6 +145,31 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
 
   const data = (await res.json()) as T;
   return { ok: true, status: res.status, data };
+}
+
+/** Create a handler for GET /endpoint/:id with optional include. */
+export function getHandler(endpoint: string, idField: string) {
+  return async (input: Record<string, unknown>) => {
+    const query = buildQuery({ include: (input.include as string | undefined)?.split(",") });
+    return apiGet(`${endpoint}/${input[idField]}${query}`);
+  };
+}
+
+/** Create a handler for GET /endpoint with optional filters, include, and pagination. */
+export function listHandler(endpoint: string, filterMap: Record<string, string> = {}) {
+  return async (input: Record<string, unknown>) => {
+    const filter: Record<string, string> = {};
+    for (const [inputKey, apiKey] of Object.entries(filterMap)) {
+      const val = input[inputKey];
+      if (val !== undefined) filter[apiKey] = String(val);
+    }
+    const query = buildQuery({
+      include: (input.include as string | undefined)?.split(","),
+      filter,
+      page: { number: input.pageNumber as number | undefined, size: input.pageSize as number | undefined },
+    });
+    return apiGet(`${endpoint}${query}`);
+  };
 }
 
 export async function apiGet<T = unknown>(path: string): Promise<ApiResponse<T>> {

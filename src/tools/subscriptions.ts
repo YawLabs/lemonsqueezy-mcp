@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiDelete, apiGet, apiPatch, buildQuery } from "../api.js";
+import { apiDelete, apiPatch, getHandler, listHandler } from "../api.js";
 
 export const subscriptionTools = [
   {
@@ -22,10 +22,7 @@ export const subscriptionTools = [
           "Comma-separated related resources to include (e.g. 'store,customer,order,order-item,product,variant,subscription-items,subscription-invoices')",
         ),
     }),
-    handler: async (input: { subscriptionId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/subscriptions/${input.subscriptionId}${query}`);
-    },
+    handler: getHandler("/subscriptions", "subscriptionId"),
   },
   {
     name: "ls_list_subscriptions",
@@ -58,33 +55,15 @@ export const subscriptionTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: {
-      storeId?: string;
-      orderId?: string;
-      orderItemId?: string;
-      productId?: string;
-      variantId?: string;
-      userEmail?: string;
-      status?: string;
-      include?: string;
-      pageNumber?: number;
-      pageSize?: number;
-    }) => {
-      const filter: Record<string, string> = {};
-      if (input.storeId) filter.store_id = input.storeId;
-      if (input.orderId) filter.order_id = input.orderId;
-      if (input.orderItemId) filter.order_item_id = input.orderItemId;
-      if (input.productId) filter.product_id = input.productId;
-      if (input.variantId) filter.variant_id = input.variantId;
-      if (input.userEmail) filter.user_email = input.userEmail;
-      if (input.status) filter.status = input.status;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/subscriptions${query}`);
-    },
+    handler: listHandler("/subscriptions", {
+      storeId: "store_id",
+      orderId: "order_id",
+      orderItemId: "order_item_id",
+      productId: "product_id",
+      variantId: "variant_id",
+      userEmail: "user_email",
+      status: "status",
+    }),
   },
   {
     name: "ls_update_subscription",

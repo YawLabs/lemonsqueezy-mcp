@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, apiPost, buildQuery } from "../api.js";
+import { apiPost, getHandler, listHandler } from "../api.js";
 
 export const subscriptionInvoiceTools = [
   {
@@ -20,10 +20,7 @@ export const subscriptionInvoiceTools = [
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,subscription')"),
     }),
-    handler: async (input: { subscriptionInvoiceId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/subscription-invoices/${input.subscriptionInvoiceId}${query}`);
-    },
+    handler: getHandler("/subscription-invoices", "subscriptionInvoiceId"),
   },
   {
     name: "ls_list_subscription_invoices",
@@ -48,27 +45,12 @@ export const subscriptionInvoiceTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: {
-      storeId?: string;
-      subscriptionId?: string;
-      status?: string;
-      refunded?: boolean;
-      include?: string;
-      pageNumber?: number;
-      pageSize?: number;
-    }) => {
-      const filter: Record<string, string> = {};
-      if (input.storeId) filter.store_id = input.storeId;
-      if (input.subscriptionId) filter.subscription_id = input.subscriptionId;
-      if (input.status) filter.status = input.status;
-      if (input.refunded !== undefined) filter.refunded = String(input.refunded);
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/subscription-invoices${query}`);
-    },
+    handler: listHandler("/subscription-invoices", {
+      storeId: "store_id",
+      subscriptionId: "subscription_id",
+      status: "status",
+      refunded: "refunded",
+    }),
   },
   {
     name: "ls_generate_subscription_invoice",

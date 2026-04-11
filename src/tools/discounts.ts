@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiDelete, apiGet, apiPost, buildQuery } from "../api.js";
+import { apiDelete, apiPost, getHandler, listHandler } from "../api.js";
 
 export const discountTools = [
   {
@@ -19,10 +19,7 @@ export const discountTools = [
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,variants,discount-redemptions')"),
     }),
-    handler: async (input: { discountId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/discounts/${input.discountId}${query}`);
-    },
+    handler: getHandler("/discounts", "discountId"),
   },
   {
     name: "ls_list_discounts",
@@ -44,16 +41,7 @@ export const discountTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: { storeId?: string; include?: string; pageNumber?: number; pageSize?: number }) => {
-      const filter: Record<string, string> = {};
-      if (input.storeId) filter.store_id = input.storeId;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/discounts${query}`);
-    },
+    handler: listHandler("/discounts", { storeId: "store_id" }),
   },
   {
     name: "ls_create_discount",

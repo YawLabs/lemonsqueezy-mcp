@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, buildQuery } from "../api.js";
+import { getHandler, listHandler } from "../api.js";
 
 export const storeTools = [
   {
@@ -21,10 +21,7 @@ export const storeTools = [
           "Comma-separated related resources to include (e.g. 'products,discounts,license-keys,subscriptions,webhooks')",
         ),
     }),
-    handler: async (input: { storeId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/stores/${input.storeId}${query}`);
-    },
+    handler: getHandler("/stores", "storeId"),
   },
   {
     name: "ls_list_stores",
@@ -47,12 +44,6 @@ export const storeTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: { include?: string; pageNumber?: number; pageSize?: number }) => {
-      const query = buildQuery({
-        include: input.include?.split(","),
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/stores${query}`);
-    },
+    handler: listHandler("/stores"),
   },
 ] as const;

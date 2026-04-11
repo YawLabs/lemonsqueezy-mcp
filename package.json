@@ -34,7 +34,7 @@
     "test:ci": "npm run test",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && node --test dist/**/*.test.js"
   },
   "dependencies": {},
   "devDependencies": {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, apiPost, buildQuery } from "../api.js";
+import { apiPost, getHandler, listHandler } from "../api.js";
 
 export const checkoutTools = [
   {
@@ -16,10 +16,7 @@ export const checkoutTools = [
       checkoutId: z.string().describe("The checkout ID"),
       include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store,variant')"),
     }),
-    handler: async (input: { checkoutId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/checkouts/${input.checkoutId}${query}`);
-    },
+    handler: getHandler("/checkouts", "checkoutId"),
   },
   {
     name: "ls_list_checkouts",
@@ -39,23 +36,7 @@ export const checkoutTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: {
-      storeId?: string;
-      variantId?: string;
-      include?: string;
-      pageNumber?: number;
-      pageSize?: number;
-    }) => {
-      const filter: Record<string, string> = {};
-      if (input.storeId) filter.store_id = input.storeId;
-      if (input.variantId) filter.variant_id = input.variantId;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/checkouts${query}`);
-    },
+    handler: listHandler("/checkouts", { storeId: "store_id", variantId: "variant_id" }),
   },
   {
     name: "ls_create_checkout",

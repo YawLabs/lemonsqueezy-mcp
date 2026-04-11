@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, apiPatch, buildQuery } from "../api.js";
+import { apiGet, apiPatch, getHandler, listHandler } from "../api.js";
 
 export const subscriptionItemTools = [
   {
@@ -19,10 +19,7 @@ export const subscriptionItemTools = [
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'subscription,price,usage-records')"),
     }),
-    handler: async (input: { subscriptionItemId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/subscription-items/${input.subscriptionItemId}${query}`);
-    },
+    handler: getHandler("/subscription-items", "subscriptionItemId"),
   },
   {
     name: "ls_list_subscription_items",
@@ -45,23 +42,7 @@ export const subscriptionItemTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: {
-      subscriptionId?: string;
-      priceId?: string;
-      include?: string;
-      pageNumber?: number;
-      pageSize?: number;
-    }) => {
-      const filter: Record<string, string> = {};
-      if (input.subscriptionId) filter.subscription_id = input.subscriptionId;
-      if (input.priceId) filter.price_id = input.priceId;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/subscription-items${query}`);
-    },
+    handler: listHandler("/subscription-items", { subscriptionId: "subscription_id", priceId: "price_id" }),
   },
   {
     name: "ls_update_subscription_item",

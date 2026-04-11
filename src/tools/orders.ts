@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, apiPost, buildQuery } from "../api.js";
+import { apiPost, getHandler, listHandler } from "../api.js";
 
 export const orderTools = [
   {
@@ -21,10 +21,7 @@ export const orderTools = [
           "Comma-separated related resources to include (e.g. 'store,customer,order-items,subscriptions,license-keys,discount-redemptions')",
         ),
     }),
-    handler: async (input: { orderId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/orders/${input.orderId}${query}`);
-    },
+    handler: getHandler("/orders", "orderId"),
   },
   {
     name: "ls_list_orders",
@@ -49,23 +46,7 @@ export const orderTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: {
-      storeId?: string;
-      userEmail?: string;
-      include?: string;
-      pageNumber?: number;
-      pageSize?: number;
-    }) => {
-      const filter: Record<string, string> = {};
-      if (input.storeId) filter.store_id = input.storeId;
-      if (input.userEmail) filter.user_email = input.userEmail;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/orders${query}`);
-    },
+    handler: listHandler("/orders", { storeId: "store_id", userEmail: "user_email" }),
   },
   {
     name: "ls_generate_order_invoice",

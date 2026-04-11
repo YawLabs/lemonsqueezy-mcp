@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, apiPatch, apiPost, buildQuery } from "../api.js";
+import { apiPatch, apiPost, getHandler, listHandler } from "../api.js";
 
 export const customerTools = [
   {
@@ -20,10 +20,7 @@ export const customerTools = [
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,orders,subscriptions,license-keys')"),
     }),
-    handler: async (input: { customerId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/customers/${input.customerId}${query}`);
-    },
+    handler: getHandler("/customers", "customerId"),
   },
   {
     name: "ls_list_customers",
@@ -46,23 +43,7 @@ export const customerTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: {
-      storeId?: string;
-      email?: string;
-      include?: string;
-      pageNumber?: number;
-      pageSize?: number;
-    }) => {
-      const filter: Record<string, string> = {};
-      if (input.storeId) filter.store_id = input.storeId;
-      if (input.email) filter.email = input.email;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/customers${query}`);
-    },
+    handler: listHandler("/customers", { storeId: "store_id", email: "email" }),
   },
   {
     name: "ls_create_customer",

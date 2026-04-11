@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, buildQuery } from "../api.js";
+import { getHandler, listHandler } from "../api.js";
 
 export const productTools = [
   {
@@ -16,10 +16,7 @@ export const productTools = [
       productId: z.string().describe("The product ID"),
       include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store,variants')"),
     }),
-    handler: async (input: { productId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/products/${input.productId}${query}`);
-    },
+    handler: getHandler("/products", "productId"),
   },
   {
     name: "ls_list_products",
@@ -38,15 +35,6 @@ export const productTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: { storeId?: string; include?: string; pageNumber?: number; pageSize?: number }) => {
-      const filter: Record<string, string> = {};
-      if (input.storeId) filter.store_id = input.storeId;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/products${query}`);
-    },
+    handler: listHandler("/products", { storeId: "store_id" }),
   },
 ] as const;

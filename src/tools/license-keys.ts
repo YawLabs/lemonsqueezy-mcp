@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, apiPatch, buildQuery } from "../api.js";
+import { apiPatch, getHandler, listHandler } from "../api.js";
 
 export const licenseKeyTools = [
   {
@@ -21,10 +21,7 @@ export const licenseKeyTools = [
           "Comma-separated related resources to include (e.g. 'store,customer,order,order-item,product,license-key-instances')",
         ),
     }),
-    handler: async (input: { licenseKeyId: string; include?: string }) => {
-      const query = buildQuery({ include: input.include?.split(",") });
-      return apiGet(`/license-keys/${input.licenseKeyId}${query}`);
-    },
+    handler: getHandler("/license-keys", "licenseKeyId"),
   },
   {
     name: "ls_list_license_keys",
@@ -51,27 +48,12 @@ export const licenseKeyTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    handler: async (input: {
-      storeId?: string;
-      orderId?: string;
-      orderItemId?: string;
-      productId?: string;
-      include?: string;
-      pageNumber?: number;
-      pageSize?: number;
-    }) => {
-      const filter: Record<string, string> = {};
-      if (input.storeId) filter.store_id = input.storeId;
-      if (input.orderId) filter.order_id = input.orderId;
-      if (input.orderItemId) filter.order_item_id = input.orderItemId;
-      if (input.productId) filter.product_id = input.productId;
-      const query = buildQuery({
-        include: input.include?.split(","),
-        filter,
-        page: { number: input.pageNumber, size: input.pageSize },
-      });
-      return apiGet(`/license-keys${query}`);
-    },
+    handler: listHandler("/license-keys", {
+      storeId: "store_id",
+      orderId: "order_id",
+      orderItemId: "order_item_id",
+      productId: "product_id",
+    }),
   },
   {
     name: "ls_update_license_key",
