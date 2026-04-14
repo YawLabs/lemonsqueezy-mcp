@@ -5,6 +5,28 @@
 
 const BASE_URL = "https://api.lemonsqueezy.com/v1";
 const REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_RETRY_WAIT_MS = 1_000;
+const MAX_RETRY_WAIT_MS = 30_000;
+
+function parseRetryAfterMs(header: string | null): number {
+  if (!header) return DEFAULT_RETRY_WAIT_MS;
+  const trimmed = header.trim();
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
+  return DEFAULT_RETRY_WAIT_MS;
+}
+
+async function fetchWithRetry(url: string, init: Omit<RequestInit, "signal">): Promise<Response> {
+  const makeCall = () => fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  const res = await makeCall();
+  if (res.status !== 429) return res;
+  const waitMs = parseRetryAfterMs(res.headers.get("retry-after"));
+  if (waitMs > MAX_RETRY_WAIT_MS) return res;
+  await new Promise((resolve) => setTimeout(resolve, waitMs));
+  return makeCall();
+}
 
 function getApiKey(): string {
   const key = process.env.LEMONSQUEEZY_API_KEY;
@@ -72,12 +94,7 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
 
   let res: Response;
   try {
-    res = await fetch(url, {
-      method,
-      headers,
-      body: fetchBody,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    res = await fetchWithRetry(url, { method, headers, body: fetchBody });
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
       return { ok: false, status: 0, error: `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s` };
@@ -112,14 +129,13 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetchWithRetry(url, {
       method: "POST",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams(body),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {

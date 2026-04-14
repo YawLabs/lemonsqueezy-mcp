@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { affiliateTools } from "./affiliates.js";
 import { checkoutTools } from "./checkouts.js";
 import { customerTools } from "./customers.js";
 import { discountRedemptionTools } from "./discount-redemptions.js";
@@ -42,6 +43,7 @@ const allTools = [
   ...checkoutTools,
   ...webhookTools,
   ...licenseTools,
+  ...affiliateTools,
 ];
 
 describe("Tool definitions", () => {
@@ -56,7 +58,7 @@ describe("Tool definitions", () => {
   });
 
   it("should have the expected total tool count", () => {
-    assert.equal(allTools.length, 59);
+    assert.equal(allTools.length, 61);
   });
 
   for (const tool of allTools) {
@@ -114,4 +116,5 @@ describe("Tool modules export correct counts", () => {
   it("checkoutTools has 3 tools", () => assert.equal(checkoutTools.length, 3));
   it("webhookTools has 5 tools", () => assert.equal(webhookTools.length, 5));
   it("licenseTools has 3 tools", () => assert.equal(licenseTools.length, 3));
+  it("affiliateTools has 2 tools", () => assert.equal(affiliateTools.length, 2));
 });

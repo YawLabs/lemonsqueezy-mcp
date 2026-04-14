@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
+import { affiliateTools } from "./affiliates.js";
 import { checkoutTools } from "./checkouts.js";
 import { customerTools } from "./customers.js";
 import { discountRedemptionTools } from "./discount-redemptions.js";
@@ -1099,5 +1100,113 @@ describe("buildQuery", () => {
 
   it("handles single include value", () => {
     assert.equal(buildQuery({ include: ["store"] }), "?include=store");
+  });
+});
+
+// ─── Affiliates ───
+
+describe("Affiliate handlers", () => {
+  it("ls_get_affiliate calls GET /affiliates/:id", async () => {
+    const tool = findTool(affiliateTools, "ls_get_affiliate");
+    await tool.handler({ affiliateId: "7" });
+    assert.equal(lastRequest!.method, "GET");
+    assert.ok(lastRequest!.url.startsWith(`${BASE}/affiliates/7`));
+  });
+
+  it("ls_get_affiliate passes include", async () => {
+    const tool = findTool(affiliateTools, "ls_get_affiliate");
+    await tool.handler({ affiliateId: "7", include: "store,user" });
+    assert.ok(lastRequest!.url.includes("include=store%2Cuser"));
+  });
+
+  it("ls_list_affiliates calls GET /affiliates", async () => {
+    const tool = findTool(affiliateTools, "ls_list_affiliates");
+    await tool.handler({});
+    assert.equal(lastRequest!.method, "GET");
+    assert.ok(lastRequest!.url.startsWith(`${BASE}/affiliates`));
+  });
+
+  it("ls_list_affiliates maps userEmail to filter[user_email]", async () => {
+    const tool = findTool(affiliateTools, "ls_list_affiliates");
+    await tool.handler({ userEmail: "aff@example.com" });
+    assert.ok(lastRequest!.url.includes("filter[user_email]=aff%40example.com"));
+  });
+
+  it("ls_list_affiliates passes pagination", async () => {
+    const tool = findTool(affiliateTools, "ls_list_affiliates");
+    await tool.handler({ pageNumber: 2, pageSize: 25 });
+    assert.ok(lastRequest!.url.includes("page[number]=2"));
+    assert.ok(lastRequest!.url.includes("page[size]=25"));
+  });
+});
+
+// ─── 429 retry behavior ───
+
+interface QueuedResponse {
+  status: number;
+  retryAfter?: string;
+  body?: unknown;
+}
+
+function mockFetchQueue(responses: QueuedResponse[]) {
+  let callCount = 0;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const method = init?.method ?? "GET";
+    const headers: Record<string, string> = {};
+    if (init?.headers) {
+      for (const [k, v] of Object.entries(init.headers as Record<string, string>)) {
+        headers[k] = v;
+      }
+    }
+    lastRequest = { url, method, headers, body: undefined };
+    const idx = Math.min(callCount, responses.length - 1);
+    callCount++;
+    const r = responses[idx];
+    const responseHeaders: Record<string, string> = { "Content-Type": "application/vnd.api+json" };
+    if (r.retryAfter !== undefined) responseHeaders["retry-after"] = r.retryAfter;
+    return new Response(JSON.stringify(r.body ?? { data: { id: "1" } }), {
+      status: r.status,
+      headers: responseHeaders,
+    });
+  }) as typeof fetch;
+  return () => callCount;
+}
+
+describe("429 retry behavior", () => {
+  it("retries once on 429 with Retry-After: 0 and returns success", async () => {
+    const getCalls = mockFetchQueue([
+      { status: 429, retryAfter: "0", body: { errors: [{ detail: "Too Many Requests" }] } },
+      { status: 200, body: { data: { id: "42" } } },
+    ]);
+    const tool = findTool(storeTools, "ls_get_store");
+    await tool.handler({ storeId: "42" });
+    assert.equal(getCalls(), 2);
+  });
+
+  it("does not retry if Retry-After exceeds 30s cap", async () => {
+    const getCalls = mockFetchQueue([
+      { status: 429, retryAfter: "31", body: { errors: [{ detail: "rate limited" }] } },
+    ]);
+    const tool = findTool(storeTools, "ls_get_store");
+    await tool.handler({ storeId: "42" });
+    assert.equal(getCalls(), 1);
+  });
+
+  it("surfaces 429 when the retry also hits 429", async () => {
+    const getCalls = mockFetchQueue([
+      { status: 429, retryAfter: "0", body: { errors: [{ detail: "first" }] } },
+      { status: 429, retryAfter: "0", body: { errors: [{ detail: "second" }] } },
+    ]);
+    const tool = findTool(storeTools, "ls_get_store");
+    await tool.handler({ storeId: "42" });
+    assert.equal(getCalls(), 2);
+  });
+
+  it("does not retry on non-429 responses", async () => {
+    const getCalls = mockFetchQueue([{ status: 500, body: { errors: [{ detail: "server error" }] } }]);
+    const tool = findTool(storeTools, "ls_get_store");
+    await tool.handler({ storeId: "42" });
+    assert.equal(getCalls(), 1);
   });
 });

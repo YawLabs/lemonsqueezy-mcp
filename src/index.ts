@@ -2,6 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { affiliateTools } from "./tools/affiliates.js";
 import { checkoutTools } from "./tools/checkouts.js";
 import { customerTools } from "./tools/customers.js";
 import { discountRedemptionTools } from "./tools/discount-redemptions.js";
@@ -62,6 +63,7 @@ const allTools = [
   ...checkoutTools,
   ...webhookTools,
   ...licenseTools,
+  ...affiliateTools,
 ];
 
 const server = new McpServer({
