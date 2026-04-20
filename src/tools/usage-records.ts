@@ -13,9 +13,10 @@ export const usageRecordTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      usageRecordId: z.string().describe("The usage record ID"),
+      usageRecordId: z.string().max(10000).describe("The usage record ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'subscription-item')"),
     }),
@@ -33,9 +34,10 @@ export const usageRecordTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().optional().describe("Filter by subscription item ID"),
+      subscriptionItemId: z.string().max(10000).optional().describe("Filter by subscription item ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'subscription-item')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
@@ -55,7 +57,7 @@ export const usageRecordTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().describe("The subscription item ID to report usage for"),
+      subscriptionItemId: z.string().max(10000).describe("The subscription item ID to report usage for"),
       quantity: z.number().int().min(0).describe("The usage quantity to report"),
       action: z
         .enum(["increment", "set"])

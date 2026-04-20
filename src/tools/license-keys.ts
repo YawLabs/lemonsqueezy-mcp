@@ -13,9 +13,10 @@ export const licenseKeyTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      licenseKeyId: z.string().describe("The license key ID"),
+      licenseKeyId: z.string().max(10000).describe("The license key ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe(
           "Comma-separated related resources to include (e.g. 'store,customer,order,order-item,product,license-key-instances')",
@@ -35,12 +36,13 @@ export const licenseKeyTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().optional().describe("Filter by store ID"),
-      orderId: z.string().optional().describe("Filter by order ID"),
-      orderItemId: z.string().optional().describe("Filter by order item ID"),
-      productId: z.string().optional().describe("Filter by product ID"),
+      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      orderId: z.string().max(10000).optional().describe("Filter by order ID"),
+      orderItemId: z.string().max(10000).optional().describe("Filter by order item ID"),
+      productId: z.string().max(10000).optional().describe("Filter by product ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe(
           "Comma-separated related resources to include (e.g. 'store,customer,order,order-item,product,license-key-instances')",
@@ -66,7 +68,7 @@ export const licenseKeyTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      licenseKeyId: z.string().describe("The license key ID to update"),
+      licenseKeyId: z.string().max(10000).describe("The license key ID to update"),
       activationLimit: z
         .number()
         .int()
@@ -74,7 +76,11 @@ export const licenseKeyTools = [
         .optional()
         .describe("Maximum number of activations allowed (0 = unlimited)"),
       disabled: z.boolean().optional().describe("Set to true to disable this license key"),
-      expiresAt: z.string().optional().describe("Expiry date (ISO 8601 format). Set to null to remove expiry."),
+      expiresAt: z
+        .string()
+        .max(10000)
+        .optional()
+        .describe("Expiry date (ISO 8601 format). Set to null to remove expiry."),
     }),
     handler: async (input: {
       licenseKeyId: string;

@@ -162,6 +162,57 @@ Add to `claude_desktop_config.json`:
 - **Zero runtime dependencies** — Single bundled file for instant `npx` startup
 - **License API** — Activate, validate, and deactivate license keys without an API key
 - **MCP annotations** — Every tool declares read-only, destructive, and idempotent hints
+- **Retry with backoff** — 429 and 5xx retries (idempotent methods only) with exponential backoff and jitter
+- **Guardrails** — optional store allowlist, refund cap, and destructive-call rate limit
+- **Structured logging** — opt-in JSON logs to stderr for observability and audit
+
+## Configuration
+
+All configuration is via environment variables. Only `LEMONSQUEEZY_API_KEY` (or `LEMONSQUEEZY_API_KEY_COMMAND`) is required; everything else is opt-in.
+
+| Variable | Purpose |
+| --- | --- |
+| `LEMONSQUEEZY_API_KEY` | LemonSqueezy API token. |
+| `LEMONSQUEEZY_API_KEY_COMMAND` | Command whose stdout produces the API key. Overrides `LEMONSQUEEZY_API_KEY`. Output is cached for 1 hour. Use this to pull short-lived credentials from a vault (`op read`, `gcloud secrets versions access`, etc.) without writing them to env vars. |
+| `LEMONSQUEEZY_ALLOWED_STORE_IDS` | Comma-separated allowlist of store IDs. When set, tools that receive a `storeId` input reject calls to any other store. Note: operations that don't take an explicit `storeId` (e.g. `ls_refund_order`) are not gated by this — pair with `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS`. |
+| `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` | Rejects `ls_refund_order` calls above this amount. |
+| `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` | Max destructive tool calls per 60-second rolling window. In-process limit — per MCP server instance, not global. |
+| `LEMONSQUEEZY_LOG=json` | Emit one JSON log line to stderr per tool and HTTP call. Destructive calls are tagged `audit: true` and include their inputs. |
+
+### Logging format
+
+Each line: `{ts, event, tool?, method?, path?, status, latency_ms, request_id?, error?, audit?, inputs?}`. Stdout is reserved for the MCP protocol — never log there.
+
+### Error decoration
+
+HTTP errors include the upstream `X-Request-Id` when present, so support tickets to LemonSqueezy can reference the exact call.
+
+## Operating the server unattended
+
+For unattended/agentic use against a live store, we recommend:
+
+1. Set `LEMONSQUEEZY_ALLOWED_STORE_IDS` to the specific store(s) the agent may touch.
+2. Set `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` to a per-call cap well below any single-refund expectation.
+3. Set `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` to a small number (e.g. 5/min) as a runaway-agent circuit breaker.
+4. Set `LEMONSQUEEZY_LOG=json` and ship stderr to your log aggregator. Alert on `status: "guardrail_block"` or elevated error rates per tool.
+5. Run `LEMONSQUEEZY_API_KEY_COMMAND` against a vault-backed secret so credentials can rotate without restarting the server process.
+
+What the server does **not** do and you must own at the caller level:
+
+- **Idempotency / dedupe store** — MCP servers are stateless subprocesses; cross-invocation dedupe belongs in your agent or orchestrator.
+- **Webhook reconciliation** — subscribe to LemonSqueezy webhooks in a separate long-running process to reconcile state when API writes succeed but the response is lost.
+- **Metrics / dashboards** — the server emits structured logs; derive metrics in your log pipeline.
+
+See [SEMVER.md](./SEMVER.md) for the versioning policy.
+
+## Development
+
+```bash
+npm install
+npm run lint
+npm test                  # full unit + handler suite
+npm run test:integration  # requires LEMONSQUEEZY_TEST_API_KEY + LEMONSQUEEZY_TEST_STORE_ID
+```
 
 ## License
 

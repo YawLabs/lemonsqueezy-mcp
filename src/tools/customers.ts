@@ -14,9 +14,10 @@ export const customerTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      customerId: z.string().describe("The customer ID"),
+      customerId: z.string().max(10000).describe("The customer ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,orders,subscriptions,license-keys')"),
     }),
@@ -34,10 +35,11 @@ export const customerTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().optional().describe("Filter by store ID"),
-      email: z.string().optional().describe("Filter by customer email"),
+      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      email: z.string().max(10000).optional().describe("Filter by customer email"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,orders,subscriptions,license-keys')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
@@ -56,12 +58,12 @@ export const customerTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().describe("The store ID to create the customer in"),
-      name: z.string().describe("Customer's full name"),
-      email: z.string().describe("Customer's email address"),
-      city: z.string().optional().describe("Customer's city"),
-      region: z.string().optional().describe("Customer's region/state"),
-      country: z.string().optional().describe("Customer's country (ISO 3166-1 alpha-2 code, e.g. 'US')"),
+      storeId: z.string().max(10000).describe("The store ID to create the customer in"),
+      name: z.string().max(10000).describe("Customer's full name"),
+      email: z.string().max(10000).describe("Customer's email address"),
+      city: z.string().max(10000).optional().describe("Customer's city"),
+      region: z.string().max(10000).optional().describe("Customer's region/state"),
+      country: z.string().max(10000).optional().describe("Customer's country (ISO 3166-1 alpha-2 code, e.g. 'US')"),
     }),
     handler: async (input: {
       storeId: string;
@@ -101,13 +103,13 @@ export const customerTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      customerId: z.string().describe("The customer ID to update"),
-      name: z.string().optional().describe("New name"),
-      email: z.string().optional().describe("New email"),
-      city: z.string().optional().describe("New city"),
-      region: z.string().optional().describe("New region/state"),
-      country: z.string().optional().describe("New country (ISO 3166-1 alpha-2 code)"),
-      status: z.string().optional().describe("New status ('archived' to archive the customer)"),
+      customerId: z.string().max(10000).describe("The customer ID to update"),
+      name: z.string().max(10000).optional().describe("New name"),
+      email: z.string().max(10000).optional().describe("New email"),
+      city: z.string().max(10000).optional().describe("New city"),
+      region: z.string().max(10000).optional().describe("New region/state"),
+      country: z.string().max(10000).optional().describe("New country (ISO 3166-1 alpha-2 code)"),
+      status: z.string().max(10000).optional().describe("New status ('archived' to archive the customer)"),
     }),
     handler: async (input: {
       customerId: string;
@@ -147,7 +149,7 @@ export const customerTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      customerId: z.string().describe("The customer ID to archive"),
+      customerId: z.string().max(10000).describe("The customer ID to archive"),
     }),
     handler: async (input: { customerId: string }) => {
       return apiPatch(`/customers/${input.customerId}`, {

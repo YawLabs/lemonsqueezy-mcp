@@ -1193,20 +1193,43 @@ describe("429 retry behavior", () => {
     assert.equal(getCalls(), 1);
   });
 
-  it("surfaces 429 when the retry also hits 429", async () => {
+  it("surfaces 429 when all retry attempts also hit 429", async () => {
     const getCalls = mockFetchQueue([
       { status: 429, retryAfter: "0", body: { errors: [{ detail: "first" }] } },
       { status: 429, retryAfter: "0", body: { errors: [{ detail: "second" }] } },
+      { status: 429, retryAfter: "0", body: { errors: [{ detail: "third" }] } },
+      { status: 429, retryAfter: "0", body: { errors: [{ detail: "fourth" }] } },
     ]);
     const tool = findTool(storeTools, "ls_get_store");
-    await tool.handler({ storeId: "42" });
-    assert.equal(getCalls(), 2);
+    const result = await tool.handler({ storeId: "42" });
+    assert.equal(getCalls(), 4);
+    assert.equal((result as { status: number }).status, 429);
   });
 
-  it("does not retry on non-429 responses", async () => {
+  it("retries 5xx on idempotent GET up to max attempts", async () => {
     const getCalls = mockFetchQueue([{ status: 500, body: { errors: [{ detail: "server error" }] } }]);
     const tool = findTool(storeTools, "ls_get_store");
-    await tool.handler({ storeId: "42" });
+    const result = await tool.handler({ storeId: "42" });
+    assert.equal(getCalls(), 4);
+    assert.equal((result as { status: number }).status, 500);
+  });
+
+  it("returns 2xx immediately on 5xx recovery", async () => {
+    const getCalls = mockFetchQueue([
+      { status: 500, body: { errors: [{ detail: "server error" }] } },
+      { status: 200, body: { data: { id: "42" } } },
+    ]);
+    const tool = findTool(storeTools, "ls_get_store");
+    const result = await tool.handler({ storeId: "42" });
+    assert.equal(getCalls(), 2);
+    assert.equal((result as { status: number }).status, 200);
+  });
+
+  it("does not retry 5xx on non-idempotent POST", async () => {
+    const getCalls = mockFetchQueue([{ status: 500, body: { errors: [{ detail: "server error" }] } }]);
+    const tool = findTool(customerTools, "ls_create_customer");
+    const result = await tool.handler({ storeId: "1", name: "A", email: "a@b.c" });
     assert.equal(getCalls(), 1);
+    assert.equal((result as { status: number }).status, 500);
   });
 });

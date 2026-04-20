@@ -13,8 +13,12 @@ export const affiliateTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      affiliateId: z.string().describe("The affiliate ID"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store,user')"),
+      affiliateId: z.string().max(10000).describe("The affiliate ID"),
+      include: z
+        .string()
+        .max(10000)
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'store,user')"),
     }),
     handler: getHandler("/affiliates", "affiliateId"),
   },
@@ -30,8 +34,12 @@ export const affiliateTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      userEmail: z.string().email().optional().describe("Filter by affiliate's user email"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store,user')"),
+      userEmail: z.string().email().max(320).optional().describe("Filter by affiliate's user email"),
+      include: z
+        .string()
+        .max(10000)
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'store,user')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),

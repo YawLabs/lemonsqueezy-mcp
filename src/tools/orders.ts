@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiPost, getHandler, listHandler } from "../api.js";
+import { checkRefundAmount } from "../guardrails.js";
 
 export const orderTools = [
   {
@@ -13,9 +14,10 @@ export const orderTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      orderId: z.string().describe("The order ID"),
+      orderId: z.string().max(10000).describe("The order ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe(
           "Comma-separated related resources to include (e.g. 'store,customer,order-items,subscriptions,license-keys,discount-redemptions')",
@@ -35,10 +37,11 @@ export const orderTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().optional().describe("Filter by store ID"),
-      userEmail: z.string().optional().describe("Filter by user email"),
+      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      userEmail: z.string().max(10000).optional().describe("Filter by user email"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe(
           "Comma-separated related resources to include (e.g. 'store,customer,order-items,subscriptions,license-keys,discount-redemptions')",
@@ -59,15 +62,15 @@ export const orderTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      orderId: z.string().describe("The order ID"),
-      name: z.string().optional().describe("Customer name on the invoice"),
-      address: z.string().optional().describe("Customer address on the invoice"),
-      city: z.string().optional().describe("Customer city"),
-      state: z.string().optional().describe("Customer state/region"),
-      zipCode: z.string().optional().describe("Customer ZIP/postal code"),
-      country: z.string().optional().describe("Customer country"),
-      notes: z.string().optional().describe("Additional notes to include on the invoice"),
-      locale: z.string().optional().describe("Invoice language locale (e.g. 'en', 'fr', 'de')"),
+      orderId: z.string().max(10000).describe("The order ID"),
+      name: z.string().max(10000).optional().describe("Customer name on the invoice"),
+      address: z.string().max(10000).optional().describe("Customer address on the invoice"),
+      city: z.string().max(10000).optional().describe("Customer city"),
+      state: z.string().max(10000).optional().describe("Customer state/region"),
+      zipCode: z.string().max(10000).optional().describe("Customer ZIP/postal code"),
+      country: z.string().max(10000).optional().describe("Customer country"),
+      notes: z.string().max(10000).optional().describe("Additional notes to include on the invoice"),
+      locale: z.string().max(10000).optional().describe("Invoice language locale (e.g. 'en', 'fr', 'de')"),
     }),
     handler: async (input: {
       orderId: string;
@@ -105,10 +108,11 @@ export const orderTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      orderId: z.string().describe("The order ID to refund"),
+      orderId: z.string().max(10000).describe("The order ID to refund"),
       amount: z.number().int().min(1).describe("Refund amount in cents (e.g. 1000 = $10.00)"),
     }),
     handler: async (input: { orderId: string; amount: number }) => {
+      checkRefundAmount(input.amount);
       return apiPost(`/orders/${input.orderId}/refund`, {
         data: { type: "orders", id: input.orderId, attributes: { amount: input.amount } },
       });

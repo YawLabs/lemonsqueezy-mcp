@@ -13,9 +13,10 @@ export const storeTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().describe("The store ID"),
+      storeId: z.string().max(10000).describe("The store ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe(
           "Comma-separated related resources to include (e.g. 'products,discounts,license-keys,subscriptions,webhooks')",
@@ -37,6 +38,7 @@ export const storeTools = [
     inputSchema: z.object({
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe(
           "Comma-separated related resources to include (e.g. 'products,discounts,license-keys,subscriptions,webhooks')",

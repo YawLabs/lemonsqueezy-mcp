@@ -14,9 +14,10 @@ export const subscriptionInvoiceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionInvoiceId: z.string().describe("The subscription invoice ID"),
+      subscriptionInvoiceId: z.string().max(10000).describe("The subscription invoice ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,subscription')"),
     }),
@@ -34,12 +35,13 @@ export const subscriptionInvoiceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().optional().describe("Filter by store ID"),
-      subscriptionId: z.string().optional().describe("Filter by subscription ID"),
+      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      subscriptionId: z.string().max(10000).optional().describe("Filter by subscription ID"),
       status: z.enum(["pending", "paid", "void", "refunded"]).optional().describe("Filter by invoice status"),
       refunded: z.boolean().optional().describe("Filter by refunded status"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,subscription')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
@@ -63,15 +65,15 @@ export const subscriptionInvoiceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionInvoiceId: z.string().describe("The subscription invoice ID"),
-      name: z.string().optional().describe("Customer name on the invoice"),
-      address: z.string().optional().describe("Customer address on the invoice"),
-      city: z.string().optional().describe("Customer city"),
-      state: z.string().optional().describe("Customer state/region"),
-      zipCode: z.string().optional().describe("Customer ZIP/postal code"),
-      country: z.string().optional().describe("Customer country"),
-      notes: z.string().optional().describe("Additional notes to include on the invoice"),
-      locale: z.string().optional().describe("Invoice language locale (e.g. 'en', 'fr', 'de')"),
+      subscriptionInvoiceId: z.string().max(10000).describe("The subscription invoice ID"),
+      name: z.string().max(10000).optional().describe("Customer name on the invoice"),
+      address: z.string().max(10000).optional().describe("Customer address on the invoice"),
+      city: z.string().max(10000).optional().describe("Customer city"),
+      state: z.string().max(10000).optional().describe("Customer state/region"),
+      zipCode: z.string().max(10000).optional().describe("Customer ZIP/postal code"),
+      country: z.string().max(10000).optional().describe("Customer country"),
+      notes: z.string().max(10000).optional().describe("Additional notes to include on the invoice"),
+      locale: z.string().max(10000).optional().describe("Invoice language locale (e.g. 'en', 'fr', 'de')"),
     }),
     handler: async (input: {
       subscriptionInvoiceId: string;
@@ -109,7 +111,7 @@ export const subscriptionInvoiceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionInvoiceId: z.string().describe("The subscription invoice ID to refund"),
+      subscriptionInvoiceId: z.string().max(10000).describe("The subscription invoice ID to refund"),
       amount: z.number().int().min(1).describe("Refund amount in cents (e.g. 1000 = $10.00)"),
     }),
     handler: async (input: { subscriptionInvoiceId: string; amount: number }) => {

@@ -13,8 +13,12 @@ export const discountRedemptionTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      discountRedemptionId: z.string().describe("The discount redemption ID"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'discount,order')"),
+      discountRedemptionId: z.string().max(10000).describe("The discount redemption ID"),
+      include: z
+        .string()
+        .max(10000)
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'discount,order')"),
     }),
     handler: getHandler("/discount-redemptions", "discountRedemptionId"),
   },
@@ -30,9 +34,13 @@ export const discountRedemptionTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      discountId: z.string().optional().describe("Filter by discount ID"),
-      orderId: z.string().optional().describe("Filter by order ID"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'discount,order')"),
+      discountId: z.string().max(10000).optional().describe("Filter by discount ID"),
+      orderId: z.string().max(10000).optional().describe("Filter by order ID"),
+      include: z
+        .string()
+        .max(10000)
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'discount,order')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),

@@ -13,8 +13,8 @@ export const webhookTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      webhookId: z.string().describe("The webhook ID"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store')"),
+      webhookId: z.string().max(10000).describe("The webhook ID"),
+      include: z.string().max(10000).optional().describe("Comma-separated related resources to include (e.g. 'store')"),
     }),
     handler: getHandler("/webhooks", "webhookId"),
   },
@@ -30,8 +30,8 @@ export const webhookTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().optional().describe("Filter by store ID"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store')"),
+      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      include: z.string().max(10000).optional().describe("Comma-separated related resources to include (e.g. 'store')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
@@ -49,8 +49,8 @@ export const webhookTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().describe("The store ID"),
-      url: z.string().describe("The URL to send webhook events to"),
+      storeId: z.string().max(10000).describe("The store ID"),
+      url: z.string().max(10000).describe("The URL to send webhook events to"),
       events: z
         .array(z.string())
         .describe(
@@ -85,10 +85,10 @@ export const webhookTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      webhookId: z.string().describe("The webhook ID to update"),
-      url: z.string().optional().describe("New URL to send webhook events to"),
+      webhookId: z.string().max(10000).describe("The webhook ID to update"),
+      url: z.string().max(10000).optional().describe("New URL to send webhook events to"),
       events: z.array(z.string()).optional().describe("Updated list of event types to subscribe to"),
-      secret: z.string().optional().describe("New signing secret"),
+      secret: z.string().max(10000).optional().describe("New signing secret"),
     }),
     handler: async (input: { webhookId: string; url?: string; events?: string[]; secret?: string }) => {
       const attributes: Record<string, unknown> = {};
@@ -116,7 +116,7 @@ export const webhookTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      webhookId: z.string().describe("The webhook ID to delete"),
+      webhookId: z.string().max(10000).describe("The webhook ID to delete"),
     }),
     handler: async (input: { webhookId: string }) => {
       return apiDelete(`/webhooks/${input.webhookId}`);

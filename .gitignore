@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 *.tgz
 .env
+.claude
+

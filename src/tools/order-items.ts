@@ -13,9 +13,10 @@ export const orderItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      orderItemId: z.string().describe("The order item ID"),
+      orderItemId: z.string().max(10000).describe("The order item ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'order,product,variant')"),
     }),
@@ -33,11 +34,12 @@ export const orderItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      orderId: z.string().optional().describe("Filter by order ID"),
-      productId: z.string().optional().describe("Filter by product ID"),
-      variantId: z.string().optional().describe("Filter by variant ID"),
+      orderId: z.string().max(10000).optional().describe("Filter by order ID"),
+      productId: z.string().max(10000).optional().describe("Filter by product ID"),
+      variantId: z.string().max(10000).optional().describe("Filter by variant ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'order,product,variant')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),

@@ -2,6 +2,8 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { GuardrailError, checkDestructiveRateLimit, checkStoreAllowed } from "./guardrails.js";
+import { logEvent } from "./logger.js";
 import { affiliateTools } from "./tools/affiliates.js";
 import { checkoutTools } from "./tools/checkouts.js";
 import { customerTools } from "./tools/customers.js";
@@ -73,15 +75,34 @@ const server = new McpServer({
 
 // Register all tools with annotations
 for (const tool of allTools) {
+  const isDestructive = tool.annotations?.destructiveHint === true;
+
   server.tool(
     tool.name,
     tool.description,
     tool.inputSchema.shape,
     tool.annotations,
     async (input: Record<string, unknown>) => {
+      const start = Date.now();
       try {
+        if (isDestructive) checkDestructiveRateLimit();
+        const storeId = input.storeId;
+        if (typeof storeId === "string") checkStoreAllowed(storeId);
+
         const result = await (tool.handler as (input: unknown) => Promise<unknown>)(input);
-        const response = result as { ok: boolean; data?: unknown; error?: string };
+        const response = result as { ok: boolean; data?: unknown; error?: string; requestId?: string };
+
+        const latency_ms = Date.now() - start;
+        logEvent({
+          event: "tool_call",
+          tool: tool.name,
+          status: response.ok ? "ok" : "error",
+          latency_ms,
+          request_id: response.requestId,
+          error: response.ok ? undefined : response.error,
+          audit: isDestructive ? true : undefined,
+          inputs: isDestructive ? input : undefined,
+        });
 
         if (!response.ok) {
           return {
@@ -101,6 +122,16 @@ for (const tool of allTools) {
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        const latency_ms = Date.now() - start;
+        logEvent({
+          event: "tool_call",
+          tool: tool.name,
+          status: err instanceof GuardrailError ? "guardrail_block" : "exception",
+          latency_ms,
+          error: message,
+          audit: isDestructive ? true : undefined,
+          inputs: isDestructive ? input : undefined,
+        });
         return {
           content: [{ type: "text" as const, text: `Error: ${message}` }],
           isError: true,

@@ -14,9 +14,10 @@ export const subscriptionTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionId: z.string().describe("The subscription ID"),
+      subscriptionId: z.string().max(10000).describe("The subscription ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe(
           "Comma-separated related resources to include (e.g. 'store,customer,order,order-item,product,variant,subscription-items,subscription-invoices')",
@@ -36,18 +37,19 @@ export const subscriptionTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().optional().describe("Filter by store ID"),
-      orderId: z.string().optional().describe("Filter by order ID"),
-      orderItemId: z.string().optional().describe("Filter by order item ID"),
-      productId: z.string().optional().describe("Filter by product ID"),
-      variantId: z.string().optional().describe("Filter by variant ID"),
-      userEmail: z.string().optional().describe("Filter by user email"),
+      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      orderId: z.string().max(10000).optional().describe("Filter by order ID"),
+      orderItemId: z.string().max(10000).optional().describe("Filter by order item ID"),
+      productId: z.string().max(10000).optional().describe("Filter by product ID"),
+      variantId: z.string().max(10000).optional().describe("Filter by variant ID"),
+      userEmail: z.string().max(10000).optional().describe("Filter by user email"),
       status: z
         .enum(["on_trial", "active", "paused", "past_due", "unpaid", "cancelled", "expired"])
         .optional()
         .describe("Filter by subscription status"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe(
           "Comma-separated related resources to include (e.g. 'store,customer,order,order-item,product,variant')",
@@ -77,8 +79,8 @@ export const subscriptionTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionId: z.string().describe("The subscription ID to update"),
-      variantId: z.string().optional().describe("New variant ID for plan switching"),
+      subscriptionId: z.string().max(10000).describe("The subscription ID to update"),
+      variantId: z.string().max(10000).optional().describe("New variant ID for plan switching"),
       pause: z
         .enum(["void", "free", "resume"])
         .optional()
@@ -97,6 +99,7 @@ export const subscriptionTools = [
       disableProrations: z.boolean().optional().describe("If true, disable prorations when changing plans"),
       trialEndsAt: z
         .string()
+        .max(10000)
         .optional()
         .describe("Set trial end date (ISO 8601 format). Set to null to end trial immediately."),
     }),
@@ -140,7 +143,7 @@ export const subscriptionTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionId: z.string().describe("The subscription ID to cancel"),
+      subscriptionId: z.string().max(10000).describe("The subscription ID to cancel"),
     }),
     handler: async (input: { subscriptionId: string }) => {
       return apiDelete(`/subscriptions/${input.subscriptionId}`);

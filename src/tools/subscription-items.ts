@@ -13,9 +13,10 @@ export const subscriptionItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().describe("The subscription item ID"),
+      subscriptionItemId: z.string().max(10000).describe("The subscription item ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'subscription,price,usage-records')"),
     }),
@@ -33,10 +34,11 @@ export const subscriptionItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionId: z.string().optional().describe("Filter by subscription ID"),
-      priceId: z.string().optional().describe("Filter by price ID"),
+      subscriptionId: z.string().max(10000).optional().describe("Filter by subscription ID"),
+      priceId: z.string().max(10000).optional().describe("Filter by price ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'subscription,price,usage-records')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
@@ -55,7 +57,7 @@ export const subscriptionItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().describe("The subscription item ID to update"),
+      subscriptionItemId: z.string().max(10000).describe("The subscription item ID to update"),
       quantity: z.number().int().min(1).describe("New quantity for the subscription item"),
     }),
     handler: async (input: { subscriptionItemId: string; quantity: number }) => {
@@ -79,7 +81,7 @@ export const subscriptionItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().describe("The subscription item ID"),
+      subscriptionItemId: z.string().max(10000).describe("The subscription item ID"),
     }),
     handler: async (input: { subscriptionItemId: string }) => {
       return apiGet(`/subscription-items/${input.subscriptionItemId}/current-usage`);

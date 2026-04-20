@@ -14,8 +14,11 @@ export const licenseTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      licenseKey: z.string().describe("The license key to activate"),
-      instanceName: z.string().describe("A name for this activation instance (e.g. machine name, user identifier)"),
+      licenseKey: z.string().max(10000).describe("The license key to activate"),
+      instanceName: z
+        .string()
+        .max(10000)
+        .describe("A name for this activation instance (e.g. machine name, user identifier)"),
     }),
     handler: async (input: { licenseKey: string; instanceName: string }) => {
       return licenseRequest("/licenses/activate", {
@@ -36,8 +39,8 @@ export const licenseTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      licenseKey: z.string().describe("The license key to validate"),
-      instanceId: z.string().optional().describe("Optional instance ID to validate a specific activation"),
+      licenseKey: z.string().max(10000).describe("The license key to validate"),
+      instanceId: z.string().max(10000).optional().describe("Optional instance ID to validate a specific activation"),
     }),
     handler: async (input: { licenseKey: string; instanceId?: string }) => {
       const body: Record<string, string> = { license_key: input.licenseKey };
@@ -57,8 +60,8 @@ export const licenseTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      licenseKey: z.string().describe("The license key"),
-      instanceId: z.string().describe("The instance ID to deactivate"),
+      licenseKey: z.string().max(10000).describe("The license key"),
+      instanceId: z.string().max(10000).describe("The instance ID to deactivate"),
     }),
     handler: async (input: { licenseKey: string; instanceId: string }) => {
       return licenseRequest("/licenses/deactivate", {

@@ -1,0 +1,51 @@
+name: Integration
+
+# Runs tests against a real LemonSqueezy test-mode store to catch upstream
+# schema drift. Skips cleanly if the required secrets are not configured.
+#
+# Required repository secrets:
+#   LEMONSQUEEZY_TEST_API_KEY   — API key for a test-mode store
+#   LEMONSQUEEZY_TEST_STORE_ID  — numeric store ID
+
+on:
+  schedule:
+    - cron: "37 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check secrets present
+        id: secrets
+        env:
+          API_KEY: ${{ secrets.LEMONSQUEEZY_TEST_API_KEY }}
+          STORE_ID: ${{ secrets.LEMONSQUEEZY_TEST_STORE_ID }}
+        run: |
+          if [ -n "$API_KEY" ] && [ -n "$STORE_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Integration secrets not configured; skipping."
+          fi
+
+      - run: npm ci
+        if: steps.secrets.outputs.configured == 'true'
+
+      - run: npm run build
+        if: steps.secrets.outputs.configured == 'true'
+
+      - name: Run integration tests
+        if: steps.secrets.outputs.configured == 'true'
+        env:
+          LEMONSQUEEZY_TEST_API_KEY: ${{ secrets.LEMONSQUEEZY_TEST_API_KEY }}
+          LEMONSQUEEZY_TEST_STORE_ID: ${{ secrets.LEMONSQUEEZY_TEST_STORE_ID }}
+        run: npm run test:integration

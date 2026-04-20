@@ -3,47 +3,18 @@
  * Uses JSON:API format (application/vnd.api+json).
  */
 
+import { logEvent } from "./logger.js";
+import { REQUEST_TIMEOUT_MS, fetchWithRetry, isAbortTimeoutError } from "./retry.js";
+import { loadApiKey } from "./secret.js";
+
 const BASE_URL = "https://api.lemonsqueezy.com/v1";
-const REQUEST_TIMEOUT_MS = 30_000;
-const DEFAULT_RETRY_WAIT_MS = 1_000;
-const MAX_RETRY_WAIT_MS = 30_000;
-
-function parseRetryAfterMs(header: string | null): number {
-  if (!header) return DEFAULT_RETRY_WAIT_MS;
-  const trimmed = header.trim();
-  const seconds = Number(trimmed);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
-  const dateMs = Date.parse(trimmed);
-  if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
-  return DEFAULT_RETRY_WAIT_MS;
-}
-
-async function fetchWithRetry(url: string, init: Omit<RequestInit, "signal">): Promise<Response> {
-  const makeCall = () => fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-  const res = await makeCall();
-  if (res.status !== 429) return res;
-  const waitMs = parseRetryAfterMs(res.headers.get("retry-after"));
-  if (waitMs > MAX_RETRY_WAIT_MS) return res;
-  await new Promise((resolve) => setTimeout(resolve, waitMs));
-  return makeCall();
-}
-
-function getApiKey(): string {
-  const key = process.env.LEMONSQUEEZY_API_KEY;
-  if (!key) {
-    throw new Error("LEMONSQUEEZY_API_KEY environment variable is required.");
-  }
-  if (key.trim() === "") {
-    throw new Error("LEMONSQUEEZY_API_KEY is set but empty. Provide a valid API key.");
-  }
-  return key;
-}
 
 export interface ApiResponse<T = unknown> {
   ok: boolean;
   status: number;
   data?: T;
   error?: string;
+  requestId?: string;
 }
 
 /** Build query string from JSON:API params (include, filter, page). */
@@ -78,9 +49,15 @@ export function buildQuery(params?: {
   return parts.length > 0 ? `?${parts.join("&")}` : "";
 }
 
+function decorateError(error: string, requestId: string | undefined): string {
+  return requestId ? `${error} (request_id: ${requestId})` : error;
+}
+
 async function apiRequest<T = unknown>(method: string, path: string, body?: unknown): Promise<ApiResponse<T>> {
+  const start = Date.now();
+  const apiKey = await loadApiKey();
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${getApiKey()}`,
+    Authorization: `Bearer ${apiKey}`,
     Accept: "application/vnd.api+json",
   };
 
@@ -91,33 +68,81 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
   }
 
   const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
+  const idempotent = method === "GET" || method === "DELETE";
 
   let res: Response;
   try {
-    res = await fetchWithRetry(url, { method, headers, body: fetchBody });
+    res = await fetchWithRetry(url, { method, headers, body: fetchBody }, { idempotent });
   } catch (err) {
-    if (err instanceof Error && err.name === "TimeoutError") {
-      return { ok: false, status: 0, error: `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s` };
+    const latency_ms = Date.now() - start;
+    if (isAbortTimeoutError(err)) {
+      const error = `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`;
+      logEvent({ event: "http_call", method, path, status: "timeout", latency_ms, error });
+      return { ok: false, status: 0, error };
     }
+    const message = err instanceof Error ? err.message : String(err);
+    logEvent({ event: "http_call", method, path, status: "network_error", latency_ms, error: message });
     throw err;
   }
+
+  const latency_ms = Date.now() - start;
+  const requestId = res.headers.get("x-request-id") ?? undefined;
 
   if (!res.ok) {
     const errorBody = await res.text();
     try {
       const parsed = JSON.parse(errorBody);
-      return { ok: false, status: res.status, data: parsed, error: parsed.errors?.[0]?.detail ?? errorBody };
+      const detail = (parsed as { errors?: Array<{ detail?: string }> }).errors?.[0]?.detail ?? errorBody;
+      logEvent({
+        event: "http_call",
+        method,
+        path,
+        status: res.status,
+        latency_ms,
+        request_id: requestId,
+        error: detail,
+      });
+      return {
+        ok: false,
+        status: res.status,
+        data: parsed as T,
+        error: decorateError(detail, requestId),
+        requestId,
+      };
     } catch {
-      return { ok: false, status: res.status, error: errorBody };
+      logEvent({
+        event: "http_call",
+        method,
+        path,
+        status: res.status,
+        latency_ms,
+        request_id: requestId,
+        error: errorBody,
+      });
+      return {
+        ok: false,
+        status: res.status,
+        error: decorateError(errorBody, requestId),
+        requestId,
+      };
     }
   }
 
+  logEvent({
+    event: "http_call",
+    method,
+    path,
+    status: res.status,
+    latency_ms,
+    request_id: requestId,
+  });
+
   if (res.status === 204) {
-    return { ok: true, status: res.status };
+    return { ok: true, status: res.status, requestId };
   }
 
   const data = (await res.json()) as T;
-  return { ok: true, status: res.status, data };
+  return { ok: true, status: res.status, data, requestId };
 }
 
 /**
@@ -126,41 +151,96 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
  */
 export async function licenseRequest<T = unknown>(path: string, body: Record<string, string>): Promise<ApiResponse<T>> {
   const url = `${BASE_URL}${path}`;
+  const start = Date.now();
 
   let res: Response;
   try {
-    res = await fetchWithRetry(url, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
+    res = await fetchWithRetry(
+      url,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams(body),
       },
-      body: new URLSearchParams(body),
-    });
+      { idempotent: false },
+    );
   } catch (err) {
-    if (err instanceof Error && err.name === "TimeoutError") {
-      return { ok: false, status: 0, error: `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s` };
+    const latency_ms = Date.now() - start;
+    if (isAbortTimeoutError(err)) {
+      const error = `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`;
+      logEvent({ event: "http_call", method: "POST", path, status: "timeout", latency_ms, error });
+      return { ok: false, status: 0, error };
     }
+    const message = err instanceof Error ? err.message : String(err);
+    logEvent({
+      event: "http_call",
+      method: "POST",
+      path,
+      status: "network_error",
+      latency_ms,
+      error: message,
+    });
     throw err;
   }
+
+  const latency_ms = Date.now() - start;
+  const requestId = res.headers.get("x-request-id") ?? undefined;
 
   if (!res.ok) {
     const errorBody = await res.text();
     try {
       const parsed = JSON.parse(errorBody);
+      const p = parsed as { errors?: Array<{ detail?: string }>; error?: string };
+      const detail = p.errors?.[0]?.detail ?? p.error ?? errorBody;
+      logEvent({
+        event: "http_call",
+        method: "POST",
+        path,
+        status: res.status,
+        latency_ms,
+        request_id: requestId,
+        error: detail,
+      });
       return {
         ok: false,
         status: res.status,
-        data: parsed,
-        error: parsed.errors?.[0]?.detail ?? parsed.error ?? errorBody,
+        data: parsed as T,
+        error: decorateError(detail, requestId),
+        requestId,
       };
     } catch {
-      return { ok: false, status: res.status, error: errorBody };
+      logEvent({
+        event: "http_call",
+        method: "POST",
+        path,
+        status: res.status,
+        latency_ms,
+        request_id: requestId,
+        error: errorBody,
+      });
+      return {
+        ok: false,
+        status: res.status,
+        error: decorateError(errorBody, requestId),
+        requestId,
+      };
     }
   }
 
+  logEvent({
+    event: "http_call",
+    method: "POST",
+    path,
+    status: res.status,
+    latency_ms,
+    request_id: requestId,
+  });
+
   const data = (await res.json()) as T;
-  return { ok: true, status: res.status, data };
+  return { ok: true, status: res.status, data, requestId };
 }
 
 /** Create a handler for GET /endpoint/:id with optional include. */

@@ -13,8 +13,12 @@ export const checkoutTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      checkoutId: z.string().describe("The checkout ID"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store,variant')"),
+      checkoutId: z.string().max(10000).describe("The checkout ID"),
+      include: z
+        .string()
+        .max(10000)
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'store,variant')"),
     }),
     handler: getHandler("/checkouts", "checkoutId"),
   },
@@ -30,9 +34,13 @@ export const checkoutTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().optional().describe("Filter by store ID"),
-      variantId: z.string().optional().describe("Filter by variant ID"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'store,variant')"),
+      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      variantId: z.string().max(10000).optional().describe("Filter by variant ID"),
+      include: z
+        .string()
+        .max(10000)
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'store,variant')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
@@ -50,21 +58,21 @@ export const checkoutTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().describe("The store ID"),
-      variantId: z.string().describe("The variant ID for the product being purchased"),
+      storeId: z.string().max(10000).describe("The store ID"),
+      variantId: z.string().max(10000).describe("The variant ID for the product being purchased"),
       customPrice: z.number().int().min(0).optional().describe("Custom price in cents (overrides the variant price)"),
       enabledVariants: z
         .array(z.string())
         .optional()
         .describe("Array of variant IDs to show on the checkout (for products with multiple variants)"),
-      email: z.string().optional().describe("Prefill customer email"),
-      name: z.string().optional().describe("Prefill customer name"),
-      billingAddressCountry: z.string().optional().describe("Prefill billing country (ISO 3166-1 alpha-2)"),
-      billingAddressZip: z.string().optional().describe("Prefill billing ZIP/postal code"),
-      taxNumber: z.string().optional().describe("Prefill tax/VAT number"),
-      discountCode: z.string().optional().describe("Pre-apply a discount code"),
+      email: z.string().max(10000).optional().describe("Prefill customer email"),
+      name: z.string().max(10000).optional().describe("Prefill customer name"),
+      billingAddressCountry: z.string().max(10000).optional().describe("Prefill billing country (ISO 3166-1 alpha-2)"),
+      billingAddressZip: z.string().max(10000).optional().describe("Prefill billing ZIP/postal code"),
+      taxNumber: z.string().max(10000).optional().describe("Prefill tax/VAT number"),
+      discountCode: z.string().max(10000).optional().describe("Pre-apply a discount code"),
       customData: z.record(z.unknown()).optional().describe("Custom data object to attach to the order"),
-      expiresAt: z.string().optional().describe("Checkout expiry date (ISO 8601 format)"),
+      expiresAt: z.string().max(10000).optional().describe("Checkout expiry date (ISO 8601 format)"),
     }),
     handler: async (input: {
       storeId: string;

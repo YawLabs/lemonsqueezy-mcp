@@ -13,8 +13,12 @@ export const licenseKeyInstanceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      licenseKeyInstanceId: z.string().describe("The license key instance ID"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'license-key')"),
+      licenseKeyInstanceId: z.string().max(10000).describe("The license key instance ID"),
+      include: z
+        .string()
+        .max(10000)
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'license-key')"),
     }),
     handler: getHandler("/license-key-instances", "licenseKeyInstanceId"),
   },
@@ -30,8 +34,12 @@ export const licenseKeyInstanceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      licenseKeyId: z.string().optional().describe("Filter by license key ID"),
-      include: z.string().optional().describe("Comma-separated related resources to include (e.g. 'license-key')"),
+      licenseKeyId: z.string().max(10000).optional().describe("Filter by license key ID"),
+      include: z
+        .string()
+        .max(10000)
+        .optional()
+        .describe("Comma-separated related resources to include (e.g. 'license-key')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),

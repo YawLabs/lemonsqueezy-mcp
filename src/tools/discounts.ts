@@ -13,9 +13,10 @@ export const discountTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      discountId: z.string().describe("The discount ID"),
+      discountId: z.string().max(10000).describe("The discount ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,variants,discount-redemptions')"),
     }),
@@ -33,9 +34,10 @@ export const discountTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().optional().describe("Filter by store ID"),
+      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
       include: z
         .string()
+        .max(10000)
         .optional()
         .describe("Comma-separated related resources to include (e.g. 'store,variants,discount-redemptions')"),
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
@@ -55,9 +57,9 @@ export const discountTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().describe("The store ID to create the discount in"),
-      name: z.string().describe("Internal name for the discount"),
-      code: z.string().describe("The discount code customers will enter (e.g. 'SAVE20')"),
+      storeId: z.string().max(10000).describe("The store ID to create the discount in"),
+      name: z.string().max(10000).describe("Internal name for the discount"),
+      code: z.string().max(10000).describe("The discount code customers will enter (e.g. 'SAVE20')"),
       amount: z
         .number()
         .int()
@@ -84,8 +86,8 @@ export const discountTools = [
         .min(0)
         .optional()
         .describe("Maximum number of times this discount can be redeemed (0 = unlimited)"),
-      startsAt: z.string().optional().describe("When the discount becomes active (ISO 8601 format)"),
-      expiresAt: z.string().optional().describe("When the discount expires (ISO 8601 format)"),
+      startsAt: z.string().max(10000).optional().describe("When the discount becomes active (ISO 8601 format)"),
+      expiresAt: z.string().max(10000).optional().describe("When the discount expires (ISO 8601 format)"),
       isLimitedToProducts: z
         .boolean()
         .optional()
@@ -152,7 +154,7 @@ export const discountTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      discountId: z.string().describe("The discount ID to delete"),
+      discountId: z.string().max(10000).describe("The discount ID to delete"),
     }),
     handler: async (input: { discountId: string }) => {
       return apiDelete(`/discounts/${input.discountId}`);
