@@ -22,6 +22,7 @@ import { storeTools } from "../tools/stores.js";
 import { subscriptionTools } from "../tools/subscriptions.js";
 import { userTools } from "../tools/users.js";
 import { variantTools } from "../tools/variants.js";
+import { webhookTools } from "../tools/webhooks.js";
 
 type HandlerResult = { ok: boolean; data?: unknown; error?: string; status: number };
 
@@ -67,6 +68,29 @@ async function listStaleCiDiscounts(storeId: string): Promise<DiscountRow[]> {
 
 async function deleteDiscount(id: string): Promise<void> {
   await run(findTool(discountTools, "ls_delete_discount"), { discountId: id });
+}
+
+interface WebhookRow {
+  id: string;
+  attributes?: { url?: string; created_at?: string };
+}
+
+async function listStaleCiWebhooks(storeId: string): Promise<WebhookRow[]> {
+  const result = await run(findTool(webhookTools, "ls_list_webhooks"), { storeId, pageSize: 100 });
+  if (!result.ok) return [];
+  const rows = ((result.data as { data?: WebhookRow[] }).data ?? []) as WebhookRow[];
+  const cutoff = Date.now() - SWEEP_STALE_AFTER_MS;
+  return rows.filter((r) => {
+    const url = r.attributes?.url ?? "";
+    if (!url.includes(CI_PREFIX)) return false;
+    const createdAt = r.attributes?.created_at;
+    if (!createdAt) return true;
+    return Date.parse(createdAt) < cutoff;
+  });
+}
+
+async function deleteWebhook(id: string): Promise<void> {
+  await run(findTool(webhookTools, "ls_delete_webhook"), { webhookId: id });
 }
 
 describe("integration (real LemonSqueezy API)", { skip: !enabled }, () => {
@@ -164,6 +188,56 @@ describe("integration write path (real LemonSqueezy API)", { skip: !enabled }, (
 
     const afterDelete = await run(findTool(discountTools, "ls_get_discount"), { discountId: gotData?.id ?? "" });
     assert.equal(afterDelete.ok, false, "discount still readable after delete");
+    assert.equal(afterDelete.status, 404);
+  });
+});
+
+describe("integration webhook write path (real LemonSqueezy API)", { skip: !enabled }, () => {
+  let createdId: string | null = null;
+
+  before(async () => {
+    const stale = await listStaleCiWebhooks(testStoreId ?? "");
+    for (const row of stale) {
+      await deleteWebhook(row.id).catch(() => {});
+    }
+  });
+
+  after(async () => {
+    if (createdId) {
+      await deleteWebhook(createdId).catch(() => {});
+    }
+  });
+
+  it("creates, reads, and deletes a webhook round-trip", async () => {
+    const suffix = Date.now().toString(36);
+    const url = `https://example.com/${CI_PREFIX}${suffix}`;
+    const secret = `ci-test-secret-${suffix}`;
+
+    const created = await run(findTool(webhookTools, "ls_create_webhook"), {
+      storeId: testStoreId,
+      url,
+      events: ["order_created"],
+      secret,
+    });
+    assert.equal(created.ok, true, `create failed: ${created.error}`);
+    const createdData = (created.data as { data?: { id?: string; attributes?: { url?: string } } }).data;
+    assert.equal(createdData?.attributes?.url, url);
+    assert.ok(createdData?.id, "create response missing id");
+    createdId = createdData.id ?? null;
+
+    const got = await run(findTool(webhookTools, "ls_get_webhook"), { webhookId: createdId });
+    assert.equal(got.ok, true, `get failed: ${got.error}`);
+    const gotData = (got.data as { data?: { id?: string; attributes?: { url?: string; events?: string[] } } }).data;
+    assert.equal(gotData?.id, createdId);
+    assert.equal(gotData?.attributes?.url, url);
+    assert.ok(gotData?.attributes?.events?.includes("order_created"));
+
+    const deleted = await run(findTool(webhookTools, "ls_delete_webhook"), { webhookId: createdId });
+    assert.equal(deleted.ok, true, `delete failed: ${deleted.error}`);
+    createdId = null;
+
+    const afterDelete = await run(findTool(webhookTools, "ls_get_webhook"), { webhookId: gotData?.id ?? "" });
+    assert.equal(afterDelete.ok, false, "webhook still readable after delete");
     assert.equal(afterDelete.status, 404);
   });
 });
