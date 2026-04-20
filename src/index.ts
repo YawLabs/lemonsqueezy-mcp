@@ -2,7 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { GuardrailError, checkDestructiveRateLimit, checkStoreAllowed } from "./guardrails.js";
+import { checkDestructiveRateLimit, checkStoreAllowed, GuardrailError } from "./guardrails.js";
 import { logEvent } from "./logger.js";
 import { affiliateTools } from "./tools/affiliates.js";
 import { checkoutTools } from "./tools/checkouts.js";

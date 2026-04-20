@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
-  GuardrailError,
   _resetGuardrailsForTest,
   checkDestructiveRateLimit,
   checkRefundAmount,
   checkStoreAllowed,
+  GuardrailError,
 } from "./guardrails.js";
 
 const ENV_KEYS = [
