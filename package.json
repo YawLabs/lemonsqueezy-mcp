@@ -38,6 +38,9 @@
     "prepublishOnly": "npm run build && node --test dist/**/*.test.js"
   },
   "dependencies": {},
+  "overrides": {
+    "hono": "^4.12.14"
+  },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
