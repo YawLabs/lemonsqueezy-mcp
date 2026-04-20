@@ -15,6 +15,7 @@
 
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { customerTools } from "../tools/customers.js";
 import { discountTools } from "../tools/discounts.js";
 import { orderTools } from "../tools/orders.js";
 import { productTools } from "../tools/products.js";
@@ -91,6 +92,36 @@ async function listStaleCiWebhooks(storeId: string): Promise<WebhookRow[]> {
 
 async function deleteWebhook(id: string): Promise<void> {
   await run(findTool(webhookTools, "ls_delete_webhook"), { webhookId: id });
+}
+
+interface CustomerRow {
+  id: string;
+  attributes?: { email?: string; status?: string; created_at?: string };
+}
+
+/**
+ * LemonSqueezy customers cannot be deleted — only archived. So the sweep
+ * archives stale ci-test customers that are still active, rather than
+ * deleting them. Already-archived stale customers accumulate in the store
+ * but are harmless (not in active lists, no billing, no quota).
+ */
+async function listStaleCiActiveCustomers(storeId: string): Promise<CustomerRow[]> {
+  const result = await run(findTool(customerTools, "ls_list_customers"), { storeId, pageSize: 100 });
+  if (!result.ok) return [];
+  const rows = ((result.data as { data?: CustomerRow[] }).data ?? []) as CustomerRow[];
+  const cutoff = Date.now() - SWEEP_STALE_AFTER_MS;
+  return rows.filter((r) => {
+    const email = r.attributes?.email ?? "";
+    if (!email.startsWith(CI_PREFIX)) return false;
+    if (r.attributes?.status === "archived") return false;
+    const createdAt = r.attributes?.created_at;
+    if (!createdAt) return true;
+    return Date.parse(createdAt) < cutoff;
+  });
+}
+
+async function archiveCustomer(id: string): Promise<void> {
+  await run(findTool(customerTools, "ls_archive_customer"), { customerId: id });
 }
 
 describe("integration (real LemonSqueezy API)", { skip: !enabled }, () => {
@@ -239,6 +270,59 @@ describe("integration webhook write path (real LemonSqueezy API)", { skip: !enab
     const afterDelete = await run(findTool(webhookTools, "ls_get_webhook"), { webhookId: gotData?.id ?? "" });
     assert.equal(afterDelete.ok, false, "webhook still readable after delete");
     assert.equal(afterDelete.status, 404);
+  });
+});
+
+describe("integration customer write path (real LemonSqueezy API)", { skip: !enabled }, () => {
+  let createdId: string | null = null;
+
+  before(async () => {
+    const stale = await listStaleCiActiveCustomers(testStoreId ?? "");
+    for (const row of stale) {
+      await archiveCustomer(row.id).catch(() => {});
+    }
+  });
+
+  after(async () => {
+    if (createdId) {
+      await archiveCustomer(createdId).catch(() => {});
+    }
+  });
+
+  it("creates, updates, and archives a customer round-trip", async () => {
+    const suffix = Date.now().toString(36);
+    const email = `${CI_PREFIX}${suffix}@example.com`;
+    const name = `${CI_PREFIX}${suffix}`;
+
+    const created = await run(findTool(customerTools, "ls_create_customer"), {
+      storeId: testStoreId,
+      name,
+      email,
+    });
+    assert.equal(created.ok, true, `create failed: ${created.error}`);
+    const createdData = (created.data as { data?: { id?: string; attributes?: { email?: string } } }).data;
+    assert.equal(createdData?.attributes?.email, email);
+    assert.ok(createdData?.id, "create response missing id");
+    createdId = createdData.id ?? null;
+
+    const updatedName = `${name}-updated`;
+    const updated = await run(findTool(customerTools, "ls_update_customer"), {
+      customerId: createdId,
+      name: updatedName,
+    });
+    assert.equal(updated.ok, true, `update failed: ${updated.error}`);
+    const updatedData = (updated.data as { data?: { attributes?: { name?: string } } }).data;
+    assert.equal(updatedData?.attributes?.name, updatedName);
+
+    const archived = await run(findTool(customerTools, "ls_archive_customer"), { customerId: createdId });
+    assert.equal(archived.ok, true, `archive failed: ${archived.error}`);
+
+    const got = await run(findTool(customerTools, "ls_get_customer"), { customerId: createdId });
+    assert.equal(got.ok, true, `get failed: ${got.error}`);
+    const gotData = (got.data as { data?: { attributes?: { status?: string } } }).data;
+    assert.equal(gotData?.attributes?.status, "archived");
+
+    createdId = null;
   });
 });
 

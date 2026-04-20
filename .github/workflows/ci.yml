@@ -25,3 +25,5 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm test
+      - name: Audit for high+ severity advisories
+        run: npm audit --audit-level=high
