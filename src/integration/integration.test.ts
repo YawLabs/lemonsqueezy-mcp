@@ -1,18 +1,21 @@
 /**
- * Read-only integration tests against a real LemonSqueezy store.
+ * Integration tests against a real LemonSqueezy store.
  *
  * Runs only when LEMONSQUEEZY_TEST_API_KEY and LEMONSQUEEZY_TEST_STORE_ID are set
  * (typically in the nightly CI workflow). Skipped silently otherwise so local
  * `npm test` doesn't require credentials.
  *
- * Safe against a live production store: exercises only GET/list tools, never
- * creates, updates, refunds, or deletes anything.
+ * Read paths are pure GET/list and touch nothing. The write-path round-trip
+ * creates a throwaway discount, reads it back, and deletes it. Every resource
+ * it creates is prefixed "ci-test-" so a failed run's leaked artifact is
+ * obvious and the sweep step at the start of the next run can reap it.
  *
- * Goal: catch upstream schema drift on read paths before users do.
+ * Goal: catch upstream schema drift on both read and write paths before users do.
  */
 
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
+import { discountTools } from "../tools/discounts.js";
 import { orderTools } from "../tools/orders.js";
 import { productTools } from "../tools/products.js";
 import { storeTools } from "../tools/stores.js";
@@ -26,7 +29,9 @@ const testApiKey = process.env.LEMONSQUEEZY_TEST_API_KEY;
 const testStoreId = process.env.LEMONSQUEEZY_TEST_STORE_ID;
 const enabled = Boolean(testApiKey && testStoreId);
 
-// Swap the runtime key to the test key for this suite only.
+const CI_PREFIX = "ci-test-";
+const SWEEP_STALE_AFTER_MS = 60 * 60 * 1000; // 1h
+
 const prevApiKey = process.env.LEMONSQUEEZY_API_KEY;
 if (enabled) process.env.LEMONSQUEEZY_API_KEY = testApiKey;
 
@@ -39,6 +44,29 @@ function findTool<T extends readonly { name: string }[]>(tools: T, name: string)
 async function run(tool: { handler: unknown }, input: Record<string, unknown>): Promise<HandlerResult> {
   const handler = tool.handler as (input: Record<string, unknown>) => Promise<HandlerResult>;
   return handler(input);
+}
+
+interface DiscountRow {
+  id: string;
+  attributes?: { name?: string; created_at?: string };
+}
+
+async function listStaleCiDiscounts(storeId: string): Promise<DiscountRow[]> {
+  const result = await run(findTool(discountTools, "ls_list_discounts"), { storeId, pageSize: 100 });
+  if (!result.ok) return [];
+  const rows = ((result.data as { data?: DiscountRow[] }).data ?? []) as DiscountRow[];
+  const cutoff = Date.now() - SWEEP_STALE_AFTER_MS;
+  return rows.filter((r) => {
+    const name = r.attributes?.name ?? "";
+    if (!name.startsWith(CI_PREFIX)) return false;
+    const createdAt = r.attributes?.created_at;
+    if (!createdAt) return true;
+    return Date.parse(createdAt) < cutoff;
+  });
+}
+
+async function deleteDiscount(id: string): Promise<void> {
+  await run(findTool(discountTools, "ls_delete_discount"), { discountId: id });
 }
 
 describe("integration (real LemonSqueezy API)", { skip: !enabled }, () => {
@@ -88,8 +116,58 @@ describe("integration (real LemonSqueezy API)", { skip: !enabled }, () => {
   });
 });
 
-// Restore env after the suite queues (node:test runs suites synchronously at module load;
-// handlers run async later — restoring here is only for cleanliness in watch mode).
+describe("integration write path (real LemonSqueezy API)", { skip: !enabled }, () => {
+  let createdId: string | null = null;
+
+  before(async () => {
+    const stale = await listStaleCiDiscounts(testStoreId ?? "");
+    for (const row of stale) {
+      await deleteDiscount(row.id).catch(() => {});
+    }
+  });
+
+  after(async () => {
+    if (createdId) {
+      await deleteDiscount(createdId).catch(() => {});
+    }
+  });
+
+  it("creates, reads, and deletes a discount round-trip", async () => {
+    const suffix = Date.now().toString(36);
+    const name = `${CI_PREFIX}${suffix}`;
+    const code = `CITEST${suffix.toUpperCase()}`;
+
+    const created = await run(findTool(discountTools, "ls_create_discount"), {
+      storeId: testStoreId,
+      name,
+      code,
+      amount: 10,
+      amountType: "percent",
+      duration: "once",
+    });
+    assert.equal(created.ok, true, `create failed: ${created.error}`);
+    const createdData = (created.data as { data?: { id?: string; attributes?: { name?: string } } }).data;
+    assert.equal(createdData?.attributes?.name, name);
+    assert.ok(createdData?.id, "create response missing id");
+    createdId = createdData.id ?? null;
+
+    const got = await run(findTool(discountTools, "ls_get_discount"), { discountId: createdId });
+    assert.equal(got.ok, true, `get failed: ${got.error}`);
+    const gotData = (got.data as { data?: { id?: string; attributes?: { name?: string; code?: string } } }).data;
+    assert.equal(gotData?.id, createdId);
+    assert.equal(gotData?.attributes?.name, name);
+    assert.equal(gotData?.attributes?.code, code);
+
+    const deleted = await run(findTool(discountTools, "ls_delete_discount"), { discountId: createdId });
+    assert.equal(deleted.ok, true, `delete failed: ${deleted.error}`);
+    createdId = null;
+
+    const afterDelete = await run(findTool(discountTools, "ls_get_discount"), { discountId: gotData?.id ?? "" });
+    assert.equal(afterDelete.ok, false, "discount still readable after delete");
+    assert.equal(afterDelete.status, 404);
+  });
+});
+
 if (enabled && prevApiKey !== undefined) {
   process.env.LEMONSQUEEZY_API_KEY = prevApiKey;
 }
