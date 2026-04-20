@@ -4,7 +4,7 @@
  */
 
 import { logEvent } from "./logger.js";
-import { REQUEST_TIMEOUT_MS, fetchWithRetry, isAbortTimeoutError } from "./retry.js";
+import { fetchWithRetry, isAbortTimeoutError, REQUEST_TIMEOUT_MS } from "./retry.js";
 import { loadApiKey } from "./secret.js";
 
 const BASE_URL = "https://api.lemonsqueezy.com/v1";

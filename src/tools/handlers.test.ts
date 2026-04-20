@@ -47,7 +47,7 @@ function mockFetch(status = 200, responseData: unknown = { data: { id: "1" } }) 
         headers[k] = v;
       }
     }
-    let body: unknown = undefined;
+    let body: unknown;
     if (init?.body) {
       const raw = init.body.toString();
       try {
@@ -930,7 +930,7 @@ describe("Error handling", () => {
   });
 
   it("returns timeout error when request exceeds timeout", async () => {
-    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = (async (_input: string | URL | Request, _init?: RequestInit) => {
       // Simulate AbortSignal.timeout by throwing TimeoutError
       const err = new DOMException("Signal timed out", "TimeoutError");
       throw err;
