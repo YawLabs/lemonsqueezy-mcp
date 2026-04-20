@@ -71,7 +71,7 @@ export const checkoutTools = [
       billingAddressZip: z.string().max(10000).optional().describe("Prefill billing ZIP/postal code"),
       taxNumber: z.string().max(10000).optional().describe("Prefill tax/VAT number"),
       discountCode: z.string().max(10000).optional().describe("Pre-apply a discount code"),
-      customData: z.record(z.unknown()).optional().describe("Custom data object to attach to the order"),
+      customData: z.record(z.string(), z.unknown()).optional().describe("Custom data object to attach to the order"),
       expiresAt: z.string().max(10000).optional().describe("Checkout expiry date (ISO 8601 format)"),
     }),
     handler: async (input: {
