@@ -4,6 +4,8 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-04-20
+
 ### Security
 
 - Override transitive `hono` to `^4.12.14` to clear Dependabot advisory on `hono/jsx` SSR. Not exploitable in this package (MCP does not use `hono/jsx`), but closes the supply-chain scan signal.
@@ -82,7 +84,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.2.0...v0.2.1
