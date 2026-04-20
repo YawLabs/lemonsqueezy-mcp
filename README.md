@@ -200,7 +200,7 @@ For unattended/agentic use against a live store, we recommend:
 What the server does **not** do and you must own at the caller level:
 
 - **Idempotency / dedupe store** — MCP servers are stateless subprocesses; cross-invocation dedupe belongs in your agent or orchestrator.
-- **Webhook reconciliation** — subscribe to LemonSqueezy webhooks in a separate long-running process to reconcile state when API writes succeed but the response is lost.
+- **Webhook reconciliation** — subscribe to LemonSqueezy webhooks in a separate long-running process to reconcile state when API writes succeed but the response is lost. See [@yawlabs/lemonsqueezy-webhook-sink](https://github.com/YawLabs/lemonsqueezy-webhook-sink) for a ready-made sink.
 - **Metrics / dashboards** — the server emits structured logs; derive metrics in your log pipeline.
 
 See [SEMVER.md](./SEMVER.md) for the versioning policy.
