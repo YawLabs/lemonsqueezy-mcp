@@ -37,6 +37,12 @@ const SWEEP_STALE_AFTER_MS = 60 * 60 * 1000; // 1h
 const prevApiKey = process.env.LEMONSQUEEZY_API_KEY;
 if (enabled) process.env.LEMONSQUEEZY_API_KEY = testApiKey;
 
+after(() => {
+  if (!enabled) return;
+  if (prevApiKey === undefined) delete process.env.LEMONSQUEEZY_API_KEY;
+  else process.env.LEMONSQUEEZY_API_KEY = prevApiKey;
+});
+
 function findTool<T extends readonly { name: string }[]>(tools: T, name: string): T[number] {
   const tool = tools.find((t) => t.name === name);
   if (!tool) throw new Error(`Tool ${name} not found`);
@@ -325,7 +331,3 @@ describe("integration customer write path (real LemonSqueezy API)", { skip: !ena
     createdId = null;
   });
 });
-
-if (enabled && prevApiKey !== undefined) {
-  process.env.LEMONSQUEEZY_API_KEY = prevApiKey;
-}

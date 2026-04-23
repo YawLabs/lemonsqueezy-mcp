@@ -36,7 +36,7 @@ export const customerTools = [
     },
     inputSchema: z.object({
       storeId: z.string().max(10000).optional().describe("Filter by store ID"),
-      email: z.string().max(10000).optional().describe("Filter by customer email"),
+      email: z.string().email().max(320).optional().describe("Filter by customer email"),
       include: z
         .string()
         .max(10000)
@@ -60,7 +60,7 @@ export const customerTools = [
     inputSchema: z.object({
       storeId: z.string().max(10000).describe("The store ID to create the customer in"),
       name: z.string().max(10000).describe("Customer's full name"),
-      email: z.string().max(10000).describe("Customer's email address"),
+      email: z.string().email().max(320).describe("Customer's email address"),
       city: z.string().max(10000).optional().describe("Customer's city"),
       region: z.string().max(10000).optional().describe("Customer's region/state"),
       country: z.string().max(10000).optional().describe("Customer's country (ISO 3166-1 alpha-2 code, e.g. 'US')"),
@@ -105,7 +105,7 @@ export const customerTools = [
     inputSchema: z.object({
       customerId: z.string().max(10000).describe("The customer ID to update"),
       name: z.string().max(10000).optional().describe("New name"),
-      email: z.string().max(10000).optional().describe("New email"),
+      email: z.string().email().max(320).optional().describe("New email"),
       city: z.string().max(10000).optional().describe("New city"),
       region: z.string().max(10000).optional().describe("New region/state"),
       country: z.string().max(10000).optional().describe("New country (ISO 3166-1 alpha-2 code)"),

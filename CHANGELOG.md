@@ -4,6 +4,23 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-04-23
+
+### Changed
+
+- **Breaking.** `ls_update_webhook` now validates `secret` as `min(6).max(40)`, matching `ls_create_webhook`. Previously accepted any string up to 10,000 chars. Callers passing secrets outside the 6-40 range will now be rejected at the MCP boundary.
+- **Breaking.** Email fields across `ls_list_customers`, `ls_create_customer`, `ls_update_customer`, `ls_list_orders`, and `ls_list_subscriptions` now validate as RFC email (`z.string().email().max(320)`), matching the existing `ls_list_affiliates` filter. Non-email inputs (partial matches, malformed addresses) will now be rejected at the MCP boundary.
+- `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` guardrail now also applies to `ls_refund_subscription_invoice`, closing a gap where the cap only gated `ls_refund_order`.
+- `ls_update_subscription` `trialEndsAt` is now `.nullable()` at the schema level. The description always promised `null` ends the trial immediately; the type now supports it.
+
+### Fixed
+
+- Integration test env-var restoration now runs in a top-level `after()` hook instead of at module scope, so `LEMONSQUEEZY_API_KEY` stays set to the test key for the duration of the test run. Previously a developer with both `LEMONSQUEEZY_API_KEY` (prod) and `LEMONSQUEEZY_TEST_API_KEY` set could have their prod key used against the test store.
+
+### Docs
+
+- README tool count corrected from 59 to 61 (affiliate tools from 0.3.0 plus `ls_refund_subscription_invoice` weren't reflected in the total).
+
 ## [0.4.1] — 2026-04-20
 
 ### Security
@@ -84,7 +101,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.2.1...v0.3.0

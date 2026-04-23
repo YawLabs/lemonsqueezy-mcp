@@ -38,7 +38,7 @@ export const orderTools = [
     },
     inputSchema: z.object({
       storeId: z.string().max(10000).optional().describe("Filter by store ID"),
-      userEmail: z.string().max(10000).optional().describe("Filter by user email"),
+      userEmail: z.string().email().max(320).optional().describe("Filter by user email"),
       include: z
         .string()
         .max(10000)

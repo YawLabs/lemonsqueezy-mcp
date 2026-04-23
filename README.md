@@ -54,7 +54,7 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-## Tools (59)
+## Tools (61)
 
 ### Users
 - `ls_get_user` — Get the authenticated user
@@ -157,7 +157,7 @@ Add to `claude_desktop_config.json`:
 
 ## Features
 
-- **Full API coverage** — All 17 LemonSqueezy API resources with 59 tools
+- **Full API coverage** — All 17 LemonSqueezy API resources with 61 tools
 - **JSON:API support** — Filtering, pagination, and relationship inclusion on all list/get operations
 - **Zero runtime dependencies** — Single bundled file for instant `npx` startup
 - **License API** — Activate, validate, and deactivate license keys without an API key
@@ -175,7 +175,7 @@ All configuration is via environment variables. Only `LEMONSQUEEZY_API_KEY` (or 
 | `LEMONSQUEEZY_API_KEY` | LemonSqueezy API token. |
 | `LEMONSQUEEZY_API_KEY_COMMAND` | Command whose stdout produces the API key. Overrides `LEMONSQUEEZY_API_KEY`. Output is cached for 1 hour. Use this to pull short-lived credentials from a vault (`op read`, `gcloud secrets versions access`, etc.) without writing them to env vars. |
 | `LEMONSQUEEZY_ALLOWED_STORE_IDS` | Comma-separated allowlist of store IDs. When set, tools that receive a `storeId` input reject calls to any other store. Note: operations that don't take an explicit `storeId` (e.g. `ls_refund_order`) are not gated by this — pair with `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS`. |
-| `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` | Rejects `ls_refund_order` calls above this amount. |
+| `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` | Rejects `ls_refund_order` and `ls_refund_subscription_invoice` calls above this amount. |
 | `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` | Max destructive tool calls per 60-second rolling window. In-process limit — per MCP server instance, not global. |
 | `LEMONSQUEEZY_LOG=json` | Emit one JSON log line to stderr per tool and HTTP call. Destructive calls are tagged `audit: true` and include their inputs. |
 

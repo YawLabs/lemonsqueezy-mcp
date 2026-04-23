@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiPost, getHandler, listHandler } from "../api.js";
+import { checkRefundAmount } from "../guardrails.js";
 
 export const subscriptionInvoiceTools = [
   {
@@ -115,6 +116,7 @@ export const subscriptionInvoiceTools = [
       amount: z.number().int().min(1).describe("Refund amount in cents (e.g. 1000 = $10.00)"),
     }),
     handler: async (input: { subscriptionInvoiceId: string; amount: number }) => {
+      checkRefundAmount(input.amount);
       return apiPost(`/subscription-invoices/${input.subscriptionInvoiceId}/refund`, {
         data: {
           type: "subscription-invoices",

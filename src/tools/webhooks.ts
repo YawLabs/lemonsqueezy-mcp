@@ -88,7 +88,7 @@ export const webhookTools = [
       webhookId: z.string().max(10000).describe("The webhook ID to update"),
       url: z.string().max(10000).optional().describe("New URL to send webhook events to"),
       events: z.array(z.string()).optional().describe("Updated list of event types to subscribe to"),
-      secret: z.string().max(10000).optional().describe("New signing secret"),
+      secret: z.string().min(6).max(40).optional().describe("New signing secret"),
     }),
     handler: async (input: { webhookId: string; url?: string; events?: string[]; secret?: string }) => {
       const attributes: Record<string, unknown> = {};

@@ -42,7 +42,7 @@ export const subscriptionTools = [
       orderItemId: z.string().max(10000).optional().describe("Filter by order item ID"),
       productId: z.string().max(10000).optional().describe("Filter by product ID"),
       variantId: z.string().max(10000).optional().describe("Filter by variant ID"),
-      userEmail: z.string().max(10000).optional().describe("Filter by user email"),
+      userEmail: z.string().email().max(320).optional().describe("Filter by user email"),
       status: z
         .enum(["on_trial", "active", "paused", "past_due", "unpaid", "cancelled", "expired"])
         .optional()
@@ -100,6 +100,7 @@ export const subscriptionTools = [
       trialEndsAt: z
         .string()
         .max(10000)
+        .nullable()
         .optional()
         .describe("Set trial end date (ISO 8601 format). Set to null to end trial immediately."),
     }),
@@ -111,7 +112,7 @@ export const subscriptionTools = [
       billingAnchor?: number;
       invoiceImmediately?: boolean;
       disableProrations?: boolean;
-      trialEndsAt?: string;
+      trialEndsAt?: string | null;
     }) => {
       const attributes: Record<string, unknown> = {};
       if (input.variantId !== undefined) attributes.variant_id = Number(input.variantId);

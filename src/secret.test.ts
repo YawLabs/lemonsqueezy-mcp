@@ -34,10 +34,6 @@ function writeJsScript(content: string): string {
   return writeScript(content, ".js");
 }
 
-// Reference isWindows / writeScript to keep them useful if tests expand.
-void isWindows;
-void writeScript;
-
 describe("loadApiKey", () => {
   let envSnapshot: Record<string, string | undefined>;
 
