@@ -78,6 +78,48 @@ export function checkDestructiveRateLimit(now: number = Date.now()): void {
   destructiveTimestamps.push(now);
 }
 
+export function isStoreAllowlistActive(): boolean {
+  return loadOptions().allowedStoreIds !== null;
+}
+
+/**
+ * Apply the store allowlist gate to a tool input. When the allowlist is set
+ * and the tool accepts a `storeId`, the call must specify it — otherwise a
+ * list-style call (e.g. ls_list_subscriptions) without a filter would silently
+ * return data from every store the API key can see.
+ *
+ * `toolAcceptsStoreId` is computed once per registration from the tool's
+ * input schema; pass `false` for tools that have no `storeId` field at all.
+ */
+export function checkStoreScopedToolInput(toolAcceptsStoreId: boolean, input: Record<string, unknown>): void {
+  if (!toolAcceptsStoreId) return;
+  const raw = input.storeId;
+  if (raw !== undefined && raw !== null && raw !== "") {
+    checkStoreAllowed(String(raw));
+    return;
+  }
+  if (isStoreAllowlistActive()) {
+    throw new GuardrailError("storeId is required when LEMONSQUEEZY_ALLOWED_STORE_IDS is set");
+  }
+}
+
+type ToolForDestructiveCheck = {
+  annotations?: { destructiveHint?: boolean };
+  isDestructive?: (input: Record<string, unknown>) => boolean;
+};
+
+/**
+ * Compute whether a specific call to a tool should be treated as destructive.
+ * Most tools rely on the static `destructiveHint` annotation; tools whose
+ * destructive-ness depends on the input (e.g. `ls_update_license_key` is
+ * destructive only when `disabled: true`) can declare an `isDestructive`
+ * predicate that overrides the static hint per call.
+ */
+export function isDestructiveCall(tool: ToolForDestructiveCheck, input: Record<string, unknown>): boolean {
+  if (typeof tool.isDestructive === "function") return tool.isDestructive(input);
+  return tool.annotations?.destructiveHint === true;
+}
+
 export function _resetGuardrailsForTest(): void {
   cachedOptions = null;
   destructiveTimestamps = [];

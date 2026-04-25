@@ -27,4 +27,4 @@ LemonSqueezy MCP server — manage your store, subscriptions, customers, and lic
 
 ## Release process
 
-Run `./release.sh <version>` or trigger from CI with a version tag.
+Run `./release.sh <version>` from a clean checkout of `main`. The script lints, tests, builds, bumps the version, commits/tags/pushes, publishes to npm, and creates a GitHub release. There is no CI — this script is the only supported release path. Requires `npm login --auth-type=web` and `gh auth login` to be done once on the machine.

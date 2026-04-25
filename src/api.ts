@@ -9,6 +9,15 @@ import { loadApiKey } from "./secret.js";
 
 const BASE_URL = "https://api.lemonsqueezy.com/v1";
 
+/**
+ * Encode a value for safe inclusion as a URL path segment. Always use this for
+ * caller-supplied IDs interpolated into request paths, so a value like
+ * "1/refund" cannot break out of the segment and target a different endpoint.
+ */
+export function encodePath(segment: unknown): string {
+  return encodeURIComponent(String(segment));
+}
+
 export interface ApiResponse<T = unknown> {
   ok: boolean;
   status: number;
@@ -247,7 +256,7 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
 export function getHandler(endpoint: string, idField: string) {
   return async (input: Record<string, unknown>) => {
     const query = buildQuery({ include: (input.include as string | undefined)?.split(",") });
-    return apiGet(`${endpoint}/${input[idField]}${query}`);
+    return apiGet(`${endpoint}/${encodePath(input[idField])}${query}`);
   };
 }
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPost, getHandler, listHandler } from "../api.js";
+import { apiPost, encodePath, getHandler, listHandler } from "../api.js";
 import { checkRefundAmount } from "../guardrails.js";
 
 export const orderTools = [
@@ -93,7 +93,7 @@ export const orderTools = [
       if (input.notes !== undefined) params.set("notes", input.notes);
       if (input.locale !== undefined) params.set("locale", input.locale);
       const qs = params.toString();
-      return apiPost(`/orders/${input.orderId}/generate-invoice${qs ? `?${qs}` : ""}`);
+      return apiPost(`/orders/${encodePath(input.orderId)}/generate-invoice${qs ? `?${qs}` : ""}`);
     },
   },
   {
@@ -113,7 +113,7 @@ export const orderTools = [
     }),
     handler: async (input: { orderId: string; amount: number }) => {
       checkRefundAmount(input.amount);
-      return apiPost(`/orders/${input.orderId}/refund`, {
+      return apiPost(`/orders/${encodePath(input.orderId)}/refund`, {
         data: { type: "orders", id: input.orderId, attributes: { amount: input.amount } },
       });
     },

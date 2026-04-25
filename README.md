@@ -174,9 +174,9 @@ All configuration is via environment variables. Only `LEMONSQUEEZY_API_KEY` (or 
 | --- | --- |
 | `LEMONSQUEEZY_API_KEY` | LemonSqueezy API token. |
 | `LEMONSQUEEZY_API_KEY_COMMAND` | Command whose stdout produces the API key. Overrides `LEMONSQUEEZY_API_KEY`. Output is cached for 1 hour. Use this to pull short-lived credentials from a vault (`op read`, `gcloud secrets versions access`, etc.) without writing them to env vars. |
-| `LEMONSQUEEZY_ALLOWED_STORE_IDS` | Comma-separated allowlist of store IDs. When set, tools that receive a `storeId` input reject calls to any other store. Note: operations that don't take an explicit `storeId` (e.g. `ls_refund_order`) are not gated by this — pair with `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS`. |
+| `LEMONSQUEEZY_ALLOWED_STORE_IDS` | Comma-separated allowlist of store IDs. When set: (1) any tool whose input includes a `storeId` rejects calls to a non-allowed store; (2) tools that *accept* a `storeId` filter (e.g. `ls_list_orders`, `ls_list_subscriptions`) require it — calls without one are blocked so a missing filter cannot return data from every store the API key can see. Tools with no `storeId` field at all (e.g. `ls_refund_order`, `ls_list_stores`) are not gated by this — pair with `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` and `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT`. |
 | `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` | Rejects `ls_refund_order` and `ls_refund_subscription_invoice` calls above this amount. |
-| `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` | Max destructive tool calls per 60-second rolling window. In-process limit — per MCP server instance, not global. |
+| `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` | Max destructive tool calls per 60-second rolling window. In-process limit — per MCP server instance, not global; each `npx` cold start resets the window. Counts include `ls_update_license_key` calls that set `disabled: true`. |
 | `LEMONSQUEEZY_LOG=json` | Emit one JSON log line to stderr per tool and HTTP call. Destructive calls are tagged `audit: true` and include their inputs. |
 
 ### Logging format
@@ -212,6 +212,23 @@ npm install
 npm run lint
 npm test                  # full unit + handler suite
 npm run test:integration  # requires LEMONSQUEEZY_TEST_API_KEY + LEMONSQUEEZY_TEST_STORE_ID
+```
+
+## Releasing
+
+Releases are cut locally — there is no CI pipeline. From a clean checkout of `main`:
+
+```bash
+./release.sh 0.6.0
+```
+
+The script lints, tests, builds, bumps the version, commits and tags, pushes to `origin`, publishes to npm, and creates a GitHub release. Each step is idempotent — re-running with the same version after a partial failure resumes from where it stopped.
+
+One-time setup on the release machine:
+
+```bash
+npm login --auth-type=web   # publisher of @yawlabs/lemonsqueezy-mcp
+gh auth login               # GitHub CLI for the release-creation step
 ```
 
 ## License

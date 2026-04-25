@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, apiPatch, getHandler, listHandler } from "../api.js";
+import { apiGet, apiPatch, encodePath, getHandler, listHandler } from "../api.js";
 
 export const subscriptionItemTools = [
   {
@@ -61,7 +61,7 @@ export const subscriptionItemTools = [
       quantity: z.number().int().min(1).describe("New quantity for the subscription item"),
     }),
     handler: async (input: { subscriptionItemId: string; quantity: number }) => {
-      return apiPatch(`/subscription-items/${input.subscriptionItemId}`, {
+      return apiPatch(`/subscription-items/${encodePath(input.subscriptionItemId)}`, {
         data: {
           type: "subscription-items",
           id: input.subscriptionItemId,
@@ -84,7 +84,7 @@ export const subscriptionItemTools = [
       subscriptionItemId: z.string().max(10000).describe("The subscription item ID"),
     }),
     handler: async (input: { subscriptionItemId: string }) => {
-      return apiGet(`/subscription-items/${input.subscriptionItemId}/current-usage`);
+      return apiGet(`/subscription-items/${encodePath(input.subscriptionItemId)}/current-usage`);
     },
   },
 ] as const;

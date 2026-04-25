@@ -2,7 +2,12 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { checkDestructiveRateLimit, checkStoreAllowed, GuardrailError } from "./guardrails.js";
+import {
+  checkDestructiveRateLimit,
+  checkStoreScopedToolInput,
+  GuardrailError,
+  isDestructiveCall,
+} from "./guardrails.js";
 import { logEvent } from "./logger.js";
 import { affiliateTools } from "./tools/affiliates.js";
 import { checkoutTools } from "./tools/checkouts.js";
@@ -75,7 +80,7 @@ const server = new McpServer({
 
 // Register all tools with annotations
 for (const tool of allTools) {
-  const isDestructive = tool.annotations?.destructiveHint === true;
+  const toolAcceptsStoreId = "storeId" in tool.inputSchema.shape;
 
   server.tool(
     tool.name,
@@ -83,11 +88,11 @@ for (const tool of allTools) {
     tool.inputSchema.shape,
     tool.annotations,
     async (input: Record<string, unknown>) => {
+      const isDestructive = isDestructiveCall(tool, input);
       const start = Date.now();
       try {
         if (isDestructive) checkDestructiveRateLimit();
-        const storeId = input.storeId;
-        if (typeof storeId === "string") checkStoreAllowed(storeId);
+        checkStoreScopedToolInput(toolAcceptsStoreId, input);
 
         const result = await (tool.handler as (input: unknown) => Promise<unknown>)(input);
         const response = result as { ok: boolean; data?: unknown; error?: string; requestId?: string };

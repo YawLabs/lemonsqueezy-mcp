@@ -35,7 +35,10 @@ const CI_PREFIX = "ci-test-";
 const SWEEP_STALE_AFTER_MS = 60 * 60 * 1000; // 1h
 
 const prevApiKey = process.env.LEMONSQUEEZY_API_KEY;
-if (enabled) process.env.LEMONSQUEEZY_API_KEY = testApiKey;
+
+before(() => {
+  if (enabled) process.env.LEMONSQUEEZY_API_KEY = testApiKey;
+});
 
 after(() => {
   if (!enabled) return;

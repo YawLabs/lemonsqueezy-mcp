@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiDelete, apiPost, getHandler, listHandler } from "../api.js";
+import { apiDelete, apiPost, encodePath, getHandler, listHandler } from "../api.js";
 
 export const discountTools = [
   {
@@ -157,7 +157,7 @@ export const discountTools = [
       discountId: z.string().max(10000).describe("The discount ID to delete"),
     }),
     handler: async (input: { discountId: string }) => {
-      return apiDelete(`/discounts/${input.discountId}`);
+      return apiDelete(`/discounts/${encodePath(input.discountId)}`);
     },
   },
 ] as const;

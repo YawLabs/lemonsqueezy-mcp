@@ -97,13 +97,11 @@ export const checkoutTools = [
       const checkoutData: Record<string, unknown> = {};
       if (input.email !== undefined) checkoutData.email = input.email;
       if (input.name !== undefined) checkoutData.name = input.name;
-      if (input.billingAddressCountry !== undefined)
-        checkoutData.billing_address = { country: input.billingAddressCountry };
-      if (input.billingAddressZip !== undefined) {
-        checkoutData.billing_address = {
-          ...((checkoutData.billing_address as Record<string, unknown>) || {}),
-          zip: input.billingAddressZip,
-        };
+      if (input.billingAddressCountry !== undefined || input.billingAddressZip !== undefined) {
+        const billingAddress: Record<string, unknown> = {};
+        if (input.billingAddressCountry !== undefined) billingAddress.country = input.billingAddressCountry;
+        if (input.billingAddressZip !== undefined) billingAddress.zip = input.billingAddressZip;
+        checkoutData.billing_address = billingAddress;
       }
       if (input.taxNumber !== undefined) checkoutData.tax_number = input.taxNumber;
       if (input.discountCode !== undefined) checkoutData.discount_code = input.discountCode;

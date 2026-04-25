@@ -32,7 +32,7 @@ Any of the following ship as a MAJOR bump:
 
 ## Specifically not covered by semver
 
-- **Upstream LemonSqueezy API changes.** This package is a thin wrapper over `api.lemonsqueezy.com/v1`. If LemonSqueezy renames a field in a response, our tool result shape changes even though our version does not. Run the nightly integration workflow (`.github/workflows/integration.yml`) to catch drift.
+- **Upstream LemonSqueezy API changes.** This package is a thin wrapper over `api.lemonsqueezy.com/v1`. If LemonSqueezy renames a field in a response, our tool result shape changes even though our version does not. Run `npm run test:integration` against a real test-mode store (with `LEMONSQUEEZY_TEST_API_KEY` and `LEMONSQUEEZY_TEST_STORE_ID` set) to catch drift before customers do.
 - **Log line schema.** The structured log format (`LEMONSQUEEZY_LOG=json`) is best-effort stable but not part of the semver contract — downstream log parsers should tolerate added fields.
 - **Internal modules** (`src/retry.ts`, `src/secret.ts`, `src/logger.ts`, `src/guardrails.ts`, `src/api.ts`). Only the MCP tool surface and documented env vars are covered.
 

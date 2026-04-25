@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiDelete, apiPatch, apiPost, getHandler, listHandler } from "../api.js";
+import { apiDelete, apiPatch, apiPost, encodePath, getHandler, listHandler } from "../api.js";
 
 export const webhookTools = [
   {
@@ -96,7 +96,7 @@ export const webhookTools = [
       if (input.events !== undefined) attributes.events = input.events;
       if (input.secret !== undefined) attributes.secret = input.secret;
 
-      return apiPatch(`/webhooks/${input.webhookId}`, {
+      return apiPatch(`/webhooks/${encodePath(input.webhookId)}`, {
         data: {
           type: "webhooks",
           id: input.webhookId,
@@ -119,7 +119,7 @@ export const webhookTools = [
       webhookId: z.string().max(10000).describe("The webhook ID to delete"),
     }),
     handler: async (input: { webhookId: string }) => {
-      return apiDelete(`/webhooks/${input.webhookId}`);
+      return apiDelete(`/webhooks/${encodePath(input.webhookId)}`);
     },
   },
 ] as const;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPatch, apiPost, getHandler, listHandler } from "../api.js";
+import { apiPatch, apiPost, encodePath, getHandler, listHandler } from "../api.js";
 
 export const customerTools = [
   {
@@ -128,7 +128,7 @@ export const customerTools = [
       if (input.country !== undefined) attributes.country = input.country;
       if (input.status !== undefined) attributes.status = input.status;
 
-      return apiPatch(`/customers/${input.customerId}`, {
+      return apiPatch(`/customers/${encodePath(input.customerId)}`, {
         data: {
           type: "customers",
           id: input.customerId,
@@ -152,7 +152,7 @@ export const customerTools = [
       customerId: z.string().max(10000).describe("The customer ID to archive"),
     }),
     handler: async (input: { customerId: string }) => {
-      return apiPatch(`/customers/${input.customerId}`, {
+      return apiPatch(`/customers/${encodePath(input.customerId)}`, {
         data: {
           type: "customers",
           id: input.customerId,

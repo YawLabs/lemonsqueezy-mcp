@@ -78,6 +78,13 @@ function findTool(tools: readonly { name: string; handler: Function }[], name: s
   return tool;
 }
 
+// Tools have heterogeneous Zod input schemas; tests need a uniform `.safeParse(...)`
+// view to assert validation behavior.
+type SchemaParser = { safeParse: (input: unknown) => { success: boolean } };
+function inputSchema(tool: { name: string }): SchemaParser {
+  return (tool as unknown as { inputSchema: SchemaParser }).inputSchema;
+}
+
 const BASE = "https://api.lemonsqueezy.com/v1";
 
 // ─── Setup / teardown ───
@@ -1137,6 +1144,117 @@ describe("Affiliate handlers", () => {
     await tool.handler({ pageNumber: 2, pageSize: 25 });
     assert.ok(lastRequest!.url.includes("page[number]=2"));
     assert.ok(lastRequest!.url.includes("page[size]=25"));
+  });
+});
+
+// ─── Path encoding (no segment escapes) ───
+
+describe("Path segment encoding", () => {
+  it("getHandler URL-encodes the ID parameter", async () => {
+    const tool = findTool(discountTools, "ls_get_discount");
+    await tool.handler({ discountId: "1/refund" });
+    assert.equal(lastRequest!.method, "GET");
+    assert.ok(
+      lastRequest!.url.startsWith(`${BASE}/discounts/1%2Frefund`),
+      `expected encoded id, got ${lastRequest!.url}`,
+    );
+  });
+
+  it("ls_update_customer URL-encodes the customer ID in the path", async () => {
+    const tool = findTool(customerTools, "ls_update_customer");
+    await tool.handler({ customerId: "99/extra", name: "X" });
+    assert.equal(lastRequest!.method, "PATCH");
+    assert.equal(lastRequest!.url, `${BASE}/customers/99%2Fextra`);
+  });
+
+  it("ls_refund_order URL-encodes the order ID in the path", async () => {
+    const tool = findTool(orderTools, "ls_refund_order");
+    await tool.handler({ orderId: "100/bad", amount: 100 });
+    assert.equal(lastRequest!.url, `${BASE}/orders/100%2Fbad/refund`);
+  });
+
+  it("ls_cancel_subscription URL-encodes the subscription ID", async () => {
+    mockFetch(204);
+    const tool = findTool(subscriptionTools, "ls_cancel_subscription");
+    await tool.handler({ subscriptionId: "300/oops" });
+    assert.equal(lastRequest!.method, "DELETE");
+    assert.equal(lastRequest!.url, `${BASE}/subscriptions/300%2Foops`);
+  });
+
+  it("ls_get_subscription_item_usage URL-encodes the subscription item ID", async () => {
+    const tool = findTool(subscriptionItemTools, "ls_get_subscription_item_usage");
+    await tool.handler({ subscriptionItemId: "500/leak" });
+    assert.equal(lastRequest!.url, `${BASE}/subscription-items/500%2Fleak/current-usage`);
+  });
+
+  it("ls_delete_webhook URL-encodes the webhook ID", async () => {
+    mockFetch(204);
+    const tool = findTool(webhookTools, "ls_delete_webhook");
+    await tool.handler({ webhookId: "12/00" });
+    assert.equal(lastRequest!.method, "DELETE");
+    assert.equal(lastRequest!.url, `${BASE}/webhooks/12%2F00`);
+  });
+});
+
+// ─── Schema validation ───
+
+describe("Schema validation", () => {
+  it("ls_update_subscription rejects non-numeric variantId at the schema level", () => {
+    const tool = findTool(subscriptionTools, "ls_update_subscription");
+    const result = inputSchema(tool).safeParse({ subscriptionId: "300", variantId: "not-a-number" });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_update_subscription accepts a numeric-string variantId", () => {
+    const tool = findTool(subscriptionTools, "ls_update_subscription");
+    const result = inputSchema(tool).safeParse({ subscriptionId: "300", variantId: "12345" });
+    assert.equal(result.success, true);
+  });
+
+  it("ls_update_subscription rejects '0' as variantId", () => {
+    const tool = findTool(subscriptionTools, "ls_update_subscription");
+    const result = inputSchema(tool).safeParse({ subscriptionId: "300", variantId: "0" });
+    assert.equal(result.success, false);
+  });
+});
+
+// ─── Checkout billing-address shape ───
+
+describe("Checkout billing address composition", () => {
+  it("includes only country when only billingAddressCountry is set", async () => {
+    const tool = findTool(checkoutTools, "ls_create_checkout");
+    await tool.handler({ storeId: "1", variantId: "7", billingAddressCountry: "US" });
+    const body = lastRequest!.body as AnyBody;
+    assert.deepEqual(body.data.attributes.checkout_data.billing_address, { country: "US" });
+  });
+
+  it("includes only zip when only billingAddressZip is set", async () => {
+    const tool = findTool(checkoutTools, "ls_create_checkout");
+    await tool.handler({ storeId: "1", variantId: "7", billingAddressZip: "10001" });
+    const body = lastRequest!.body as AnyBody;
+    assert.deepEqual(body.data.attributes.checkout_data.billing_address, { zip: "10001" });
+  });
+
+  it("includes both fields when both are set, regardless of declaration order", async () => {
+    const tool = findTool(checkoutTools, "ls_create_checkout");
+    await tool.handler({
+      storeId: "1",
+      variantId: "7",
+      billingAddressZip: "10001",
+      billingAddressCountry: "US",
+    });
+    const body = lastRequest!.body as AnyBody;
+    assert.deepEqual(body.data.attributes.checkout_data.billing_address, {
+      country: "US",
+      zip: "10001",
+    });
+  });
+
+  it("omits billing_address entirely when neither field is set", async () => {
+    const tool = findTool(checkoutTools, "ls_create_checkout");
+    await tool.handler({ storeId: "1", variantId: "7" });
+    const body = lastRequest!.body as AnyBody;
+    assert.equal(body.data.attributes.checkout_data, undefined);
   });
 });
 

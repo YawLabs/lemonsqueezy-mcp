@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPatch, getHandler, listHandler } from "../api.js";
+import { apiPatch, encodePath, getHandler, listHandler } from "../api.js";
 
 export const licenseKeyTools = [
   {
@@ -59,7 +59,8 @@ export const licenseKeyTools = [
   },
   {
     name: "ls_update_license_key",
-    description: "Update a license key's activation limit, expiry date, or disabled status.",
+    description:
+      "Update a license key's activation limit, expiry date, or disabled status. Setting `disabled: true` revokes customer access and is treated as destructive (rate-limited and audited).",
     annotations: {
       title: "Update license key",
       readOnlyHint: false,
@@ -67,6 +68,11 @@ export const licenseKeyTools = [
       idempotentHint: true,
       openWorldHint: true,
     },
+    // Disabling a license key revokes a customer's access. Tag the call as
+    // destructive only when `disabled: true` so the rate limiter and audit log
+    // engage on revocation, while benign edits (expiry, activation limit) stay
+    // on the regular path.
+    isDestructive: (input: Record<string, unknown>) => input.disabled === true,
     inputSchema: z.object({
       licenseKeyId: z.string().max(10000).describe("The license key ID to update"),
       activationLimit: z
@@ -93,7 +99,7 @@ export const licenseKeyTools = [
       if (input.disabled !== undefined) attributes.disabled = input.disabled;
       if (input.expiresAt !== undefined) attributes.expires_at = input.expiresAt;
 
-      return apiPatch(`/license-keys/${input.licenseKeyId}`, {
+      return apiPatch(`/license-keys/${encodePath(input.licenseKeyId)}`, {
         data: {
           type: "license-keys",
           id: input.licenseKeyId,

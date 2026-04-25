@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiDelete, apiPatch, getHandler, listHandler } from "../api.js";
+import { apiDelete, apiPatch, encodePath, getHandler, listHandler } from "../api.js";
 
 export const subscriptionTools = [
   {
@@ -80,7 +80,12 @@ export const subscriptionTools = [
     },
     inputSchema: z.object({
       subscriptionId: z.string().max(10000).describe("The subscription ID to update"),
-      variantId: z.string().max(10000).optional().describe("New variant ID for plan switching"),
+      variantId: z
+        .string()
+        .max(10000)
+        .regex(/^[1-9]\d*$/, "variantId must be a positive integer string (e.g. '12345')")
+        .optional()
+        .describe("New variant ID for plan switching"),
       pause: z
         .enum(["void", "free", "resume"])
         .optional()
@@ -123,7 +128,7 @@ export const subscriptionTools = [
       if (input.disableProrations !== undefined) attributes.disable_prorations = input.disableProrations;
       if (input.trialEndsAt !== undefined) attributes.trial_ends_at = input.trialEndsAt;
 
-      return apiPatch(`/subscriptions/${input.subscriptionId}`, {
+      return apiPatch(`/subscriptions/${encodePath(input.subscriptionId)}`, {
         data: {
           type: "subscriptions",
           id: input.subscriptionId,
@@ -147,7 +152,7 @@ export const subscriptionTools = [
       subscriptionId: z.string().max(10000).describe("The subscription ID to cancel"),
     }),
     handler: async (input: { subscriptionId: string }) => {
-      return apiDelete(`/subscriptions/${input.subscriptionId}`);
+      return apiDelete(`/subscriptions/${encodePath(input.subscriptionId)}`);
     },
   },
 ] as const;

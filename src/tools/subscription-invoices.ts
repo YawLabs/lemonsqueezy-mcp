@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPost, getHandler, listHandler } from "../api.js";
+import { apiPost, encodePath, getHandler, listHandler } from "../api.js";
 import { checkRefundAmount } from "../guardrails.js";
 
 export const subscriptionInvoiceTools = [
@@ -97,7 +97,9 @@ export const subscriptionInvoiceTools = [
       if (input.notes !== undefined) params.set("notes", input.notes);
       if (input.locale !== undefined) params.set("locale", input.locale);
       const qs = params.toString();
-      return apiPost(`/subscription-invoices/${input.subscriptionInvoiceId}/generate-invoice${qs ? `?${qs}` : ""}`);
+      return apiPost(
+        `/subscription-invoices/${encodePath(input.subscriptionInvoiceId)}/generate-invoice${qs ? `?${qs}` : ""}`,
+      );
     },
   },
   {
@@ -117,7 +119,7 @@ export const subscriptionInvoiceTools = [
     }),
     handler: async (input: { subscriptionInvoiceId: string; amount: number }) => {
       checkRefundAmount(input.amount);
-      return apiPost(`/subscription-invoices/${input.subscriptionInvoiceId}/refund`, {
+      return apiPost(`/subscription-invoices/${encodePath(input.subscriptionInvoiceId)}/refund`, {
         data: {
           type: "subscription-invoices",
           id: input.subscriptionInvoiceId,

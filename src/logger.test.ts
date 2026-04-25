@@ -90,13 +90,31 @@ describe("logEvent", () => {
     }
   });
 
-  it("swallows serialization errors silently", () => {
+  it("emits a degraded fallback entry when inputs cannot be serialized", () => {
     process.env.LEMONSQUEEZY_LOG = "json";
     const cap = captureStderr();
     try {
       const cycle: Record<string, unknown> = {};
       cycle.self = cycle;
-      assert.doesNotThrow(() => logEvent({ event: "tool_call", tool: "x", status: "ok", inputs: cycle }));
+      assert.doesNotThrow(() =>
+        logEvent({
+          event: "tool_call",
+          tool: "ls_refund_order",
+          status: "ok",
+          latency_ms: 7,
+          audit: true,
+          inputs: cycle,
+        }),
+      );
+      assert.equal(cap.lines.length, 1);
+      const parsed = JSON.parse((cap.lines[0] ?? "").trim());
+      assert.equal(parsed.event, "tool_call");
+      assert.equal(parsed.tool, "ls_refund_order");
+      assert.equal(parsed.status, "ok");
+      assert.equal(parsed.latency_ms, 7);
+      assert.equal(parsed.audit, true);
+      assert.equal(parsed.log_error, "inputs_not_serializable");
+      assert.equal(parsed.inputs, undefined);
     } finally {
       cap.restore();
     }
