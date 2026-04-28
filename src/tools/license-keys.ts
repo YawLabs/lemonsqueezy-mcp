@@ -85,6 +85,7 @@ export const licenseKeyTools = [
       expiresAt: z
         .string()
         .max(10000)
+        .nullable()
         .optional()
         .describe("Expiry date (ISO 8601 format). Set to null to remove expiry."),
     }),
@@ -92,7 +93,7 @@ export const licenseKeyTools = [
       licenseKeyId: string;
       activationLimit?: number;
       disabled?: boolean;
-      expiresAt?: string;
+      expiresAt?: string | null;
     }) => {
       const attributes: Record<string, unknown> = {};
       if (input.activationLimit !== undefined) attributes.activation_limit = input.activationLimit;

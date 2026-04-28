@@ -4,6 +4,35 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-04-24
+
+### Changed
+
+- **Breaking.** `LEMONSQUEEZY_ALLOWED_STORE_IDS` now requires `storeId` on list tools that accept it as a filter (`ls_list_orders`, `ls_list_subscriptions`, etc.). Previously the allowlist was silently bypassed when callers omitted the optional filter, returning data from every store the API key could see. Callers that relied on the unfiltered behavior must now pass an allowed `storeId` explicitly.
+- `ls_update_license_key` calls that set `disabled: true` are now classified as destructive at runtime, so revocations engage `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` and the audit log. Benign edits (expiry, activation limit) stay on the regular path.
+- `ls_update_subscription` rejects non-numeric `variantId` at the schema level instead of producing `NaN` upstream.
+- `release.sh` rewritten as a local-only, idempotent deploy with branch and auth pre-flight, EOTP retry on `npm publish`, and clearer failure messages. Re-running with the same version after a partial failure resumes from where it stopped.
+
+### Fixed
+
+- Path segments are URL-encoded across `getHandler` and every inline tool handler via a new `encodePath()` helper, closing a path-injection surface where IDs containing `/` could target adjacent endpoints.
+- Logger emits a degraded fallback entry on `JSON.stringify` failure so destructive-call audit trails survive circular inputs.
+- Checkout `billing_address` composition is now order-independent.
+- Integration test env mutation moved from module-eval to a `before()` hook.
+
+### Removed
+
+- All of `.github/` (workflows, dependabot, CODEOWNERS). There is no CI — `release.sh` is the only supported release path.
+- `test:ci` npm script.
+
+### Docs
+
+- README documents the local release flow and the one-time `npm login` / `gh auth login` setup.
+- README clarifies `LEMONSQUEEZY_ALLOWED_STORE_IDS` semantics — list filters now required when the allowlist is set; tools with no `storeId` field at all remain ungated, so pair with the refund cap and rate limit.
+- README notes that `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` counts include `ls_update_license_key` with `disabled: true`.
+- `SEMVER.md` points at `npm run test:integration` for upstream-drift detection instead of the removed nightly workflow.
+- `CLAUDE.md` and `CONTRIBUTING.md` updated to reference the local script and Biome-on-review instead of CI checks.
+
 ## [0.5.0] — 2026-04-23
 
 ### Changed
@@ -101,7 +130,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.3.0...v0.4.0

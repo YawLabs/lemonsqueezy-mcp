@@ -154,7 +154,7 @@ describe("integration (real LemonSqueezy API)", { skip: !enabled }, () => {
     assert.ok(Array.isArray((result.data as { data?: unknown[] }).data));
   });
 
-  it("lists variants scoped to the test store", async () => {
+  it("lists variants the test API key can read", async () => {
     const result = await run(findTool(variantTools, "ls_list_variants"), { pageSize: 5 });
     assert.equal(result.ok, true, `expected ok, got: ${result.error}`);
   });

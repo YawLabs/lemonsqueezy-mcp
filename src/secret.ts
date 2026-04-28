@@ -9,6 +9,12 @@ const COMMAND_MAX_BUFFER = 64 * 1024;
 
 let cached: { key: string; expiresAt: number } | null = null;
 
+// Minimal shell-style tokenizer: bare words, single-quoted, and double-quoted
+// strings, split on whitespace. No backslash escapes inside quotes, no shell
+// expansion ($vars, backticks, globs), no command substitution. Kept narrow
+// so this file stays dependency-free and the package ships with zero runtime
+// deps. Covers typical vault-CLI invocations (`vault read -field=key path`,
+// `op item get --fields password`).
 function parseCommand(cmd: string): { command: string; args: string[] } {
   const parts: string[] = [];
   let current = "";

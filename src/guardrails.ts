@@ -1,3 +1,11 @@
+// Scope: the store allowlist (LEMONSQUEEZY_ALLOWED_STORE_IDS) only gates tools
+// whose input schema carries a `storeId` field. Many destructive ID-targeted
+// tools — refunds, subscription cancel/update, customer archive,
+// discount/webhook delete, license-key disable, usage records — route by their
+// own resource ID and bypass the allowlist entirely. Pair with a
+// least-privilege LemonSqueezy API key scoped to the same stores when the
+// boundary needs to be enforced rather than advisory.
+
 export class GuardrailError extends Error {
   constructor(message: string) {
     super(message);

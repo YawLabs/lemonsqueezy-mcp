@@ -98,6 +98,10 @@ for (const tool of allTools) {
         const response = result as { ok: boolean; data?: unknown; error?: string; requestId?: string };
 
         const latency_ms = Date.now() - start;
+        // Inputs are logged ONLY for destructive calls. Today no destructive
+        // tool accepts a secret-typed input (webhook secret tools are
+        // non-destructive). If a tool with secret-bearing inputs is flipped
+        // to destructiveHint:true, add a redaction step before logging.
         logEvent({
           event: "tool_call",
           tool: tool.name,

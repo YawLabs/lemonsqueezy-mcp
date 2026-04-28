@@ -662,6 +662,14 @@ describe("License key handlers", () => {
     assert.equal(body.data.attributes.activation_limit, 5);
     assert.equal(body.data.attributes.disabled, true);
   });
+
+  it("ls_update_license_key forwards null expiresAt to clear expiry", async () => {
+    const tool = findTool(licenseKeyTools, "ls_update_license_key");
+    await tool.handler({ licenseKeyId: "900", expiresAt: null });
+    assert.equal(lastRequest!.method, "PATCH");
+    const body = lastRequest!.body as AnyBody;
+    assert.equal(body.data.attributes.expires_at, null);
+  });
 });
 
 // ─── License Key Instances ───

@@ -85,7 +85,7 @@ if [ "$RESUMING" != "true" ]; then
   echo ""
   echo -e "${YELLOW}About to release v${VERSION}. This will:${NC}"
   echo "  1. Lint"
-  echo "  2. Build + test"
+  echo "  2. Test"
   echo "  3. Bump version in package.json"
   echo "  4. Commit, tag, and push to origin/main"
   echo "  5. Publish to npm"
@@ -108,12 +108,11 @@ npm run lint || fail "Lint failed (try: npm run lint:fix)"
 info "Lint passed"
 
 # =============================================================================
-# Step 2: Build + test
+# Step 2: Test (npm test runs the build internally)
 # =============================================================================
-step 2 "Build + test"
-npm run build || fail "Build failed"
-npm test      || fail "Tests failed"
-info "Build + tests passed"
+step 2 "Test"
+npm test || fail "Tests failed"
+info "Tests passed"
 
 # =============================================================================
 # Step 3: Bump version
