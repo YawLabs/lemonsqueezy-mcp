@@ -4,6 +4,20 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-05-04
+
+### Changed
+
+- Restored CI release plumbing (`ci.yml`, `integration.yml`, `release.yml`) ported from `tailscale-mcp`. Tag-and-let-CI is the preferred release path; local `release.sh <version>` still works for end-to-end runs from the workstation.
+- `release.sh` gained a CI mode that derives version from `$GITHUB_REF_NAME`, skips local-only gates, and publishes with `--provenance`.
+
+### Fixed
+
+- `integration.yml` now requires both `LEMONSQUEEZY_TEST_API_KEY` and `LEMONSQUEEZY_TEST_STORE_ID` together. A half-configured repo previously ran the workflow successfully with every integration suite silently skipped, masking zero coverage as green CI.
+- `release.sh` CI mode now hard-fails when `package.json` disagrees with the pushed tag instead of bumping inside the ephemeral checkout, which would have published the right version while leaving `main` pointing at the old one.
+- `release.sh` `npm publish` retry only fires on EOTP/EAUTH/OTP messages. Other failures (duplicate-version E403, packaging errors) bail immediately instead of wasting 60s in the retry loop.
+- `package.json` `prepublishOnly` trimmed to `npm run build`. `release.sh` already runs lint + tests before publishing in both modes, so the embedded test run was doubling the CI work per release.
+
 ## [0.6.0] — 2026-04-24
 
 ### Changed
