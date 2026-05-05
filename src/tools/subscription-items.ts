@@ -52,7 +52,7 @@ export const subscriptionItemTools = [
     annotations: {
       title: "Update subscription item",
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       idempotentHint: true,
       openWorldHint: true,
     },

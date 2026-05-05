@@ -78,6 +78,18 @@ export const subscriptionTools = [
       idempotentHint: true,
       openWorldHint: true,
     },
+    // A pause (void/free) or plan switch is the customer-impacting subset of
+    // this tool's surface; treat those calls as destructive so they engage
+    // the rate limiter and audit log. Intentional exclusions, all of which
+    // either reverse a destructive action or are billing-neutral:
+    //   - pause === "resume"        un-pause, restoring access
+    //   - cancelled === false       un-cancel before expiry, restoring access
+    //   - billingAnchor             changes anchor day, no immediate charge
+    //   - trialEndsAt               extending or ending a trial
+    //   - invoiceImmediately        toggle on the next prorated edit
+    //   - disableProrations         toggle on plan-change behavior
+    isDestructive: (input: Record<string, unknown>) =>
+      (typeof input.pause === "string" && input.pause !== "resume") || typeof input.variantId === "string",
     inputSchema: z.object({
       subscriptionId: z.string().max(10000).describe("The subscription ID to update"),
       variantId: z

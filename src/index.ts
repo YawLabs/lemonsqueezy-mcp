@@ -88,6 +88,17 @@ for (const tool of allTools) {
     tool.inputSchema.shape,
     tool.annotations,
     async (input: Record<string, unknown>) => {
+      // The MCP SDK validates `input` against `tool.inputSchema.shape` before
+      // invoking this wrapper -- see `validateToolInput` in
+      // @modelcontextprotocol/sdk/server/mcp.js, which runs safeParseAsync
+      // against the registered schema and only calls the handler on success.
+      // So by the time isDestructiveCall and checkStoreScopedToolInput run,
+      // fields like `pause` / `status` / `storeId` are already type- and
+      // shape-checked. The `Record<string, unknown>` parameter type is the
+      // SDK's contract surface, not a signal that the input is unvalidated.
+      // If the SDK ever changes to skip pre-validation, the destructive-
+      // routing audit invariant breaks because malformed inputs could miss
+      // the predicate -- run validation here as well in that case.
       const isDestructive = isDestructiveCall(tool, input);
       const start = Date.now();
       try {

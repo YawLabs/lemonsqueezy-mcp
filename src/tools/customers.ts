@@ -102,6 +102,12 @@ export const customerTools = [
       idempotentHint: true,
       openWorldHint: true,
     },
+    // Setting status to "archived" via this tool is the same operation as
+    // ls_archive_customer and must engage the same rate limiter / audit log;
+    // otherwise the dedicated archive tool's destructive flag becomes a side
+    // channel anyone can route around. Other field edits (name, email,
+    // address) stay on the regular path.
+    isDestructive: (input: Record<string, unknown>) => input.status === "archived",
     inputSchema: z.object({
       customerId: z.string().max(10000).describe("The customer ID to update"),
       name: z.string().max(10000).optional().describe("New name"),
@@ -144,7 +150,7 @@ export const customerTools = [
     annotations: {
       title: "Archive customer",
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       idempotentHint: true,
       openWorldHint: true,
     },

@@ -52,7 +52,10 @@ export const usageRecordTools = [
     annotations: {
       title: "Create usage record",
       readOnlyHint: false,
-      destructiveHint: false,
+      // Usage records feed the meter that determines the customer's bill --
+      // 'increment' adds to current usage, 'set' overwrites it. Either mode
+      // moves real money, so engage the rate limiter and audit log.
+      destructiveHint: true,
       idempotentHint: false,
       openWorldHint: true,
     },

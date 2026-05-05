@@ -76,7 +76,13 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
     fetchBody = JSON.stringify(body);
   }
 
-  const url = path.startsWith("http") ? path : `${BASE_URL}${path}`;
+  const url = `${BASE_URL}${path}`;
+  // PATCH is excluded from the retry pool on purpose. JSON:API PATCH is
+  // semantically idempotent (you're transitioning to a known target state),
+  // but a transient 5xx mid-request leaves us unable to tell whether the
+  // server applied the change or not, and replaying could double-bill on
+  // anything that triggers proration. Treat only GET and DELETE as safe to
+  // replay; PATCH and POST go through once.
   const idempotent = method === "GET" || method === "DELETE";
 
   let res: Response;
@@ -150,7 +156,13 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
     return { ok: true, status: res.status, requestId };
   }
 
-  const data = (await res.json()) as T;
+  // Read as text first so an empty or whitespace-only 2xx body (some
+  // PATCH/POST endpoints can return 200 with no payload) doesn't blow up
+  // `res.json()`. Malformed JSON on a 2xx is still a server bug and surfaces
+  // as a thrown SyntaxError, which the registration wrapper in index.ts
+  // catches as an `exception`.
+  const bodyText = await res.text();
+  const data = bodyText.trim() ? (JSON.parse(bodyText) as T) : undefined;
   return { ok: true, status: res.status, data, requestId };
 }
 
@@ -248,7 +260,10 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
     request_id: requestId,
   });
 
-  const data = (await res.json()) as T;
+  // Same defensive read as apiRequest -- empty or whitespace-only 2xx bodies
+  // parse to undefined instead of throwing on `res.json()`.
+  const bodyText = await res.text();
+  const data = bodyText.trim() ? (JSON.parse(bodyText) as T) : undefined;
   return { ok: true, status: res.status, data, requestId };
 }
 
