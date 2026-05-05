@@ -21,14 +21,22 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     steps:
-      - name: Check for integration secret
+      - name: Check for integration secrets
         id: check
         env:
           API_KEY: ${{ secrets.LEMONSQUEEZY_TEST_API_KEY }}
+          STORE_ID: ${{ secrets.LEMONSQUEEZY_TEST_STORE_ID }}
         run: |
-          if [ -z "$API_KEY" ]; then
-            echo "::notice::LEMONSQUEEZY_TEST_API_KEY not configured -- skipping integration tests. Forks and repos without a test store are expected to hit this path. To run live tests, add the secret under Settings > Secrets and variables > Actions."
+          # Both must be set -- the test code requires API_KEY *and* STORE_ID
+          # and silently skips every suite via `{ skip: !enabled }` if either
+          # is missing. Half-configured would let CI go green with zero
+          # integration coverage, so fail loudly instead.
+          if [ -z "$API_KEY" ] && [ -z "$STORE_ID" ]; then
+            echo "::notice::LEMONSQUEEZY_TEST_API_KEY and LEMONSQUEEZY_TEST_STORE_ID not configured -- skipping integration tests. Forks and repos without a test store are expected to hit this path. To run live tests, add both secrets under Settings > Secrets and variables > Actions."
             echo "configured=false" >> $GITHUB_OUTPUT
+          elif [ -z "$API_KEY" ] || [ -z "$STORE_ID" ]; then
+            echo "::error::Integration secrets are half-configured. Both LEMONSQUEEZY_TEST_API_KEY and LEMONSQUEEZY_TEST_STORE_ID must be set together, or both unset. Set the missing one or remove the other."
+            exit 1
           else
             echo "configured=true" >> $GITHUB_OUTPUT
           fi

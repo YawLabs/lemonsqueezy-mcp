@@ -134,6 +134,12 @@ info "Tests passed"
 step 3 "Bump version to $VERSION"
 if [ "$CURRENT_VERSION" = "$VERSION" ]; then
   info "Already at v${VERSION} -- skipping"
+elif [ "$IS_CI" = "true" ]; then
+  # In CI the tag is what triggered this run; package.json on the tagged
+  # commit must already match. If it doesn't, someone tagged without first
+  # committing the version bump -- bumping here would publish the right
+  # version but leave main pointing at the old one. Fail loudly instead.
+  fail "package.json is at v${CURRENT_VERSION} but tag is v${VERSION}. Tag without prior version bump on main -- refusing to publish a version that disagrees with the source."
 else
   npm version "$VERSION" --no-git-tag-version
   info "Version bumped"
@@ -179,13 +185,25 @@ elif [ "$IS_CI" = "true" ]; then
 else
   # WebAuthn-fresh sessions sometimes EOTP on the first publish; retry up to
   # 3 times with a 30s pause before giving up. See @yawlabs CLAUDE.md note.
+  # Only retry on EOTP/EAUTH/OTP -- a duplicate-version E403 or a packaging
+  # error should fail fast, not waste 60s spinning.
   ATTEMPT=1
   MAX_ATTEMPTS=3
-  until npm publish --access public; do
-    if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
-      fail "npm publish failed after $MAX_ATTEMPTS attempts"
+  while true; do
+    PUBLISH_LOG=$(mktemp)
+    if npm publish --access public 2>&1 | tee "$PUBLISH_LOG"; then
+      rm -f "$PUBLISH_LOG"
+      break
     fi
-    warn "npm publish attempt $ATTEMPT failed -- waiting 30s and retrying"
+    if ! grep -qE 'EOTP|EAUTH|one-time password|OTP' "$PUBLISH_LOG"; then
+      rm -f "$PUBLISH_LOG"
+      fail "npm publish failed (non-OTP error -- see output above)"
+    fi
+    rm -f "$PUBLISH_LOG"
+    if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+      fail "npm publish failed after $MAX_ATTEMPTS attempts (OTP not propagated)"
+    fi
+    warn "npm publish attempt $ATTEMPT EOTPed -- waiting 30s for WebAuthn session to propagate"
     ATTEMPT=$((ATTEMPT + 1))
     sleep 30
   done

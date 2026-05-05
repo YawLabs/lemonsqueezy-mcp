@@ -34,7 +34,7 @@
     "test:integration": "npm run build && node --test dist/integration/*.test.js",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
-    "prepublishOnly": "npm run build && node --test dist/**/*.test.js"
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {},
   "overrides": {
