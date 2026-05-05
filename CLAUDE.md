@@ -27,4 +27,10 @@ LemonSqueezy MCP server — manage your store, subscriptions, customers, and lic
 
 ## Release process
 
-Run `./release.sh <version>` from a clean checkout of `main`. The script lints, tests, builds, bumps the version, commits/tags/pushes, publishes to npm, and creates a GitHub release. There is no CI — this script is the only supported release path. Requires `npm login --auth-type=web` and `gh auth login` to be done once on the machine.
+Two paths, both starting from a clean checkout of `main`:
+
+1. **Tag-and-let-CI** (preferred): bump `package.json`, commit, tag `vX.Y.Z`, `git push origin main --follow-tags`. The push triggers `.github/workflows/release.yml`, which runs `release.sh` in CI mode. CI authenticates to npm via the org-level `NPM_TOKEN` secret and publishes with `--provenance`, then creates the GitHub release. No local `npm login` needed.
+
+2. **Local end-to-end**: `./release.sh <version>` does steps 1-7 on the workstation -- lint, test, build, bump, commit, tag, push, npm publish, GitHub release, verify. Requires `npm login --auth-type=web` and `gh auth login` to be done once on the machine. Idempotent; safe to re-run after partial failures.
+
+CI also runs on every push/PR (`ci.yml` -- lint + build + tests on Node 20 + 22) and nightly against the live store (`integration.yml` -- skips silently if `LEMONSQUEEZY_TEST_API_KEY` / `LEMONSQUEEZY_TEST_STORE_ID` aren't configured).
