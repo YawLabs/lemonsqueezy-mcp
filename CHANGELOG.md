@@ -4,6 +4,13 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-05-04
+
+### Changed
+
+- `release.yml` now runs a post-publish smoke test that fetches the just-published tarball via `npx -y @yawlabs/lemonsqueezy-mcp@<version> --version` and asserts the binary executes and prints the expected version. Catches packaging regressions (missing bin shebang, broken `files` entry, bad esbuild output) before they reach real users.
+- `release.sh` step 7 now verifies that CI publishes carry a sigstore provenance attestation. A missing attestation in CI mode is a soft warning; local publishes legitimately skip provenance.
+
 ## [0.6.1] — 2026-05-04
 
 ### Changed
