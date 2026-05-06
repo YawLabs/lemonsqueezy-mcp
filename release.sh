@@ -163,7 +163,10 @@ else
   if git tag -l "v${VERSION}" | grep -q "v${VERSION}"; then
     info "Tag v${VERSION} already exists locally"
   else
-    git tag "v${VERSION}"
+    # Annotated (-a) so `git push --follow-tags` below picks it up;
+    # lightweight tags are ignored by --follow-tags and would silently
+    # fail to publish (release commit lands but tag-push is a no-op).
+    git tag -a "v${VERSION}" -m "v${VERSION}"
     info "Tag v${VERSION} created"
   fi
 
@@ -176,7 +179,7 @@ fi
 # =============================================================================
 step 5 "Publish to npm"
 
-PUBLISHED_VERSION=$(npm view @yawlabs/lemonsqueezy-mcp version 2>/dev/null || echo "")
+PUBLISHED_VERSION=$(npm view "@yawlabs/lemonsqueezy-mcp@${VERSION}" version 2>/dev/null || echo "")
 if [ "$PUBLISHED_VERSION" = "$VERSION" ]; then
   info "v${VERSION} already published on npm -- skipping"
 elif [ "$IS_CI" = "true" ]; then
@@ -238,7 +241,7 @@ step 7 "Verify"
 
 sleep 3
 
-NPM_VERSION=$(npm view @yawlabs/lemonsqueezy-mcp version 2>/dev/null || echo "")
+NPM_VERSION=$(npm view "@yawlabs/lemonsqueezy-mcp@${VERSION}" version 2>/dev/null || echo "")
 if [ "$NPM_VERSION" = "$VERSION" ]; then
   info "npm: @yawlabs/lemonsqueezy-mcp@${NPM_VERSION}"
 else
