@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getHandler, listHandler } from "../api.js";
+import { getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const discountRedemptionTools = [
   {
@@ -13,7 +13,7 @@ export const discountRedemptionTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      discountRedemptionId: z.string().max(10000).describe("The discount redemption ID"),
+      discountRedemptionId: lsIdSchema.describe("The discount redemption ID"),
       include: z
         .string()
         .max(10000)
@@ -34,8 +34,8 @@ export const discountRedemptionTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      discountId: z.string().max(10000).optional().describe("Filter by discount ID"),
-      orderId: z.string().max(10000).optional().describe("Filter by order ID"),
+      discountId: lsIdSchema.optional().describe("Filter by discount ID"),
+      orderId: lsIdSchema.optional().describe("Filter by order ID"),
       include: z
         .string()
         .max(10000)

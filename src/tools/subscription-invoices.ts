@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPost, encodePath, getHandler, listHandler } from "../api.js";
+import { apiPost, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
 import { checkRefundAmount } from "../guardrails.js";
 
 export const subscriptionInvoiceTools = [
@@ -15,7 +15,7 @@ export const subscriptionInvoiceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionInvoiceId: z.string().max(10000).describe("The subscription invoice ID"),
+      subscriptionInvoiceId: lsIdSchema.describe("The subscription invoice ID"),
       include: z
         .string()
         .max(10000)
@@ -36,8 +36,8 @@ export const subscriptionInvoiceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
-      subscriptionId: z.string().max(10000).optional().describe("Filter by subscription ID"),
+      storeId: lsIdSchema.optional().describe("Filter by store ID"),
+      subscriptionId: lsIdSchema.optional().describe("Filter by subscription ID"),
       status: z.enum(["pending", "paid", "void", "refunded"]).optional().describe("Filter by invoice status"),
       refunded: z.boolean().optional().describe("Filter by refunded status"),
       include: z
@@ -66,7 +66,7 @@ export const subscriptionInvoiceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionInvoiceId: z.string().max(10000).describe("The subscription invoice ID"),
+      subscriptionInvoiceId: lsIdSchema.describe("The subscription invoice ID"),
       name: z.string().max(10000).optional().describe("Customer name on the invoice"),
       address: z.string().max(10000).optional().describe("Customer address on the invoice"),
       city: z.string().max(10000).optional().describe("Customer city"),
@@ -114,7 +114,7 @@ export const subscriptionInvoiceTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionInvoiceId: z.string().max(10000).describe("The subscription invoice ID to refund"),
+      subscriptionInvoiceId: lsIdSchema.describe("The subscription invoice ID to refund"),
       amount: z.number().int().min(1).describe("Refund amount in cents (e.g. 1000 = $10.00)"),
     }),
     handler: async (input: { subscriptionInvoiceId: string; amount: number }) => {

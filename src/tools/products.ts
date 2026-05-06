@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getHandler, listHandler } from "../api.js";
+import { getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const productTools = [
   {
@@ -13,7 +13,7 @@ export const productTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      productId: z.string().max(10000).describe("The product ID"),
+      productId: lsIdSchema.describe("The product ID"),
       include: z
         .string()
         .max(10000)
@@ -34,7 +34,7 @@ export const productTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      storeId: lsIdSchema.optional().describe("Filter by store ID"),
       include: z
         .string()
         .max(10000)

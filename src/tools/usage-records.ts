@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPost, getHandler, listHandler } from "../api.js";
+import { apiPost, getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const usageRecordTools = [
   {
@@ -13,7 +13,7 @@ export const usageRecordTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      usageRecordId: z.string().max(10000).describe("The usage record ID"),
+      usageRecordId: lsIdSchema.describe("The usage record ID"),
       include: z
         .string()
         .max(10000)
@@ -34,7 +34,7 @@ export const usageRecordTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().max(10000).optional().describe("Filter by subscription item ID"),
+      subscriptionItemId: lsIdSchema.optional().describe("Filter by subscription item ID"),
       include: z
         .string()
         .max(10000)
@@ -60,7 +60,7 @@ export const usageRecordTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().max(10000).describe("The subscription item ID to report usage for"),
+      subscriptionItemId: lsIdSchema.describe("The subscription item ID to report usage for"),
       quantity: z.number().int().min(0).describe("The usage quantity to report"),
       action: z
         .enum(["increment", "set"])

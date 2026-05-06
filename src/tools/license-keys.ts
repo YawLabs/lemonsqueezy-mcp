@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPatch, encodePath, getHandler, listHandler } from "../api.js";
+import { apiPatch, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const licenseKeyTools = [
   {
@@ -13,7 +13,7 @@ export const licenseKeyTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      licenseKeyId: z.string().max(10000).describe("The license key ID"),
+      licenseKeyId: lsIdSchema.describe("The license key ID"),
       include: z
         .string()
         .max(10000)
@@ -36,10 +36,10 @@ export const licenseKeyTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
-      orderId: z.string().max(10000).optional().describe("Filter by order ID"),
-      orderItemId: z.string().max(10000).optional().describe("Filter by order item ID"),
-      productId: z.string().max(10000).optional().describe("Filter by product ID"),
+      storeId: lsIdSchema.optional().describe("Filter by store ID"),
+      orderId: lsIdSchema.optional().describe("Filter by order ID"),
+      orderItemId: lsIdSchema.optional().describe("Filter by order item ID"),
+      productId: lsIdSchema.optional().describe("Filter by product ID"),
       include: z
         .string()
         .max(10000)
@@ -74,7 +74,7 @@ export const licenseKeyTools = [
     // on the regular path.
     isDestructive: (input: Record<string, unknown>) => input.disabled === true,
     inputSchema: z.object({
-      licenseKeyId: z.string().max(10000).describe("The license key ID to update"),
+      licenseKeyId: lsIdSchema.describe("The license key ID to update"),
       activationLimit: z
         .number()
         .int()

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPost, getHandler, listHandler } from "../api.js";
+import { apiPost, getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const checkoutTools = [
   {
@@ -13,7 +13,7 @@ export const checkoutTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      checkoutId: z.string().max(10000).describe("The checkout ID"),
+      checkoutId: lsIdSchema.describe("The checkout ID"),
       include: z
         .string()
         .max(10000)
@@ -34,8 +34,8 @@ export const checkoutTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
-      variantId: z.string().max(10000).optional().describe("Filter by variant ID"),
+      storeId: lsIdSchema.optional().describe("Filter by store ID"),
+      variantId: lsIdSchema.optional().describe("Filter by variant ID"),
       include: z
         .string()
         .max(10000)
@@ -58,11 +58,11 @@ export const checkoutTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).describe("The store ID"),
-      variantId: z.string().max(10000).describe("The variant ID for the product being purchased"),
+      storeId: lsIdSchema.describe("The store ID"),
+      variantId: lsIdSchema.describe("The variant ID for the product being purchased"),
       customPrice: z.number().int().min(0).optional().describe("Custom price in cents (overrides the variant price)"),
       enabledVariants: z
-        .array(z.string())
+        .array(lsIdSchema)
         .optional()
         .describe("Array of variant IDs to show on the checkout (for products with multiple variants)"),
       email: z.string().max(10000).optional().describe("Prefill customer email"),

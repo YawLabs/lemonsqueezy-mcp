@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getHandler, listHandler } from "../api.js";
+import { getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const fileTools = [
   {
@@ -13,7 +13,7 @@ export const fileTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      fileId: z.string().max(10000).describe("The file ID"),
+      fileId: lsIdSchema.describe("The file ID"),
       include: z
         .string()
         .max(10000)
@@ -34,7 +34,7 @@ export const fileTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      variantId: z.string().max(10000).optional().describe("Filter by variant ID"),
+      variantId: lsIdSchema.optional().describe("Filter by variant ID"),
       include: z
         .string()
         .max(10000)

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPost, encodePath, getHandler, listHandler } from "../api.js";
+import { apiPost, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
 import { checkRefundAmount } from "../guardrails.js";
 
 export const orderTools = [
@@ -14,7 +14,7 @@ export const orderTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      orderId: z.string().max(10000).describe("The order ID"),
+      orderId: lsIdSchema.describe("The order ID"),
       include: z
         .string()
         .max(10000)
@@ -37,7 +37,7 @@ export const orderTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      storeId: lsIdSchema.optional().describe("Filter by store ID"),
       userEmail: z.string().email().max(320).optional().describe("Filter by user email"),
       include: z
         .string()
@@ -62,7 +62,7 @@ export const orderTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      orderId: z.string().max(10000).describe("The order ID"),
+      orderId: lsIdSchema.describe("The order ID"),
       name: z.string().max(10000).optional().describe("Customer name on the invoice"),
       address: z.string().max(10000).optional().describe("Customer address on the invoice"),
       city: z.string().max(10000).optional().describe("Customer city"),
@@ -108,7 +108,7 @@ export const orderTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      orderId: z.string().max(10000).describe("The order ID to refund"),
+      orderId: lsIdSchema.describe("The order ID to refund"),
       amount: z.number().int().min(1).describe("Refund amount in cents (e.g. 1000 = $10.00)"),
     }),
     handler: async (input: { orderId: string; amount: number }) => {

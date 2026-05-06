@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPatch, apiPost, encodePath, getHandler, listHandler } from "../api.js";
+import { apiPatch, apiPost, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const customerTools = [
   {
@@ -14,7 +14,7 @@ export const customerTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      customerId: z.string().max(10000).describe("The customer ID"),
+      customerId: lsIdSchema.describe("The customer ID"),
       include: z
         .string()
         .max(10000)
@@ -35,7 +35,7 @@ export const customerTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      storeId: lsIdSchema.optional().describe("Filter by store ID"),
       email: z.string().email().max(320).optional().describe("Filter by customer email"),
       include: z
         .string()
@@ -58,7 +58,7 @@ export const customerTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).describe("The store ID to create the customer in"),
+      storeId: lsIdSchema.describe("The store ID to create the customer in"),
       name: z.string().max(10000).describe("Customer's full name"),
       email: z.string().email().max(320).describe("Customer's email address"),
       city: z.string().max(10000).optional().describe("Customer's city"),
@@ -94,7 +94,8 @@ export const customerTools = [
   },
   {
     name: "ls_update_customer",
-    description: "Update an existing customer's name, email, city, region, country, or status.",
+    description:
+      "Update an existing customer's name, email, city, region, country, or status. The only supported status value is 'archived' — use ls_archive_customer for the dedicated, audit-tagged path.",
     annotations: {
       title: "Update customer",
       readOnlyHint: false,
@@ -106,16 +107,22 @@ export const customerTools = [
     // ls_archive_customer and must engage the same rate limiter / audit log;
     // otherwise the dedicated archive tool's destructive flag becomes a side
     // channel anyone can route around. Other field edits (name, email,
-    // address) stay on the regular path.
+    // address) stay on the regular path. The schema constrains `status` to
+    // the literal "archived" so a typo ("archive", "Archived") fails at
+    // validation rather than slipping past the predicate as a non-destructive
+    // PATCH that the API would 422 anyway.
     isDestructive: (input: Record<string, unknown>) => input.status === "archived",
     inputSchema: z.object({
-      customerId: z.string().max(10000).describe("The customer ID to update"),
+      customerId: lsIdSchema.describe("The customer ID to update"),
       name: z.string().max(10000).optional().describe("New name"),
       email: z.string().email().max(320).optional().describe("New email"),
       city: z.string().max(10000).optional().describe("New city"),
       region: z.string().max(10000).optional().describe("New region/state"),
       country: z.string().max(10000).optional().describe("New country (ISO 3166-1 alpha-2 code)"),
-      status: z.string().max(10000).optional().describe("New status ('archived' to archive the customer)"),
+      status: z
+        .literal("archived")
+        .optional()
+        .describe("Set to 'archived' to archive the customer. Equivalent to calling ls_archive_customer."),
     }),
     handler: async (input: {
       customerId: string;
@@ -124,7 +131,7 @@ export const customerTools = [
       city?: string;
       region?: string;
       country?: string;
-      status?: string;
+      status?: "archived";
     }) => {
       const attributes: Record<string, unknown> = {};
       if (input.name !== undefined) attributes.name = input.name;
@@ -155,7 +162,7 @@ export const customerTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      customerId: z.string().max(10000).describe("The customer ID to archive"),
+      customerId: lsIdSchema.describe("The customer ID to archive"),
     }),
     handler: async (input: { customerId: string }) => {
       return apiPatch(`/customers/${encodePath(input.customerId)}`, {

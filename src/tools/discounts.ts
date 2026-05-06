@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiDelete, apiPost, encodePath, getHandler, listHandler } from "../api.js";
+import { apiDelete, apiPost, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const discountTools = [
   {
@@ -13,7 +13,7 @@ export const discountTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      discountId: z.string().max(10000).describe("The discount ID"),
+      discountId: lsIdSchema.describe("The discount ID"),
       include: z
         .string()
         .max(10000)
@@ -34,7 +34,7 @@ export const discountTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).optional().describe("Filter by store ID"),
+      storeId: lsIdSchema.optional().describe("Filter by store ID"),
       include: z
         .string()
         .max(10000)
@@ -57,7 +57,7 @@ export const discountTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).describe("The store ID to create the discount in"),
+      storeId: lsIdSchema.describe("The store ID to create the discount in"),
       name: z.string().max(10000).describe("Internal name for the discount"),
       code: z.string().max(10000).describe("The discount code customers will enter (e.g. 'SAVE20')"),
       amount: z
@@ -93,7 +93,7 @@ export const discountTools = [
         .optional()
         .describe("If true, the discount only applies to specific variants (set via variantIds)"),
       variantIds: z
-        .array(z.string())
+        .array(lsIdSchema)
         .optional()
         .describe("Array of variant IDs this discount applies to (requires isLimitedToProducts: true)"),
     }),
@@ -154,7 +154,7 @@ export const discountTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      discountId: z.string().max(10000).describe("The discount ID to delete"),
+      discountId: lsIdSchema.describe("The discount ID to delete"),
     }),
     handler: async (input: { discountId: string }) => {
       return apiDelete(`/discounts/${encodePath(input.discountId)}`);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getHandler, listHandler } from "../api.js";
+import { getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const variantTools = [
   {
@@ -13,7 +13,7 @@ export const variantTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      variantId: z.string().max(10000).describe("The variant ID"),
+      variantId: lsIdSchema.describe("The variant ID"),
       include: z
         .string()
         .max(10000)
@@ -34,7 +34,7 @@ export const variantTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      productId: z.string().max(10000).optional().describe("Filter by product ID"),
+      productId: lsIdSchema.optional().describe("Filter by product ID"),
       include: z
         .string()
         .max(10000)

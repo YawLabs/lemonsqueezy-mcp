@@ -173,11 +173,11 @@ All configuration is via environment variables. Only `LEMONSQUEEZY_API_KEY` (or 
 | Variable | Purpose |
 | --- | --- |
 | `LEMONSQUEEZY_API_KEY` | LemonSqueezy API token. |
-| `LEMONSQUEEZY_API_KEY_COMMAND` | Command whose stdout produces the API key. Overrides `LEMONSQUEEZY_API_KEY`. Output is cached for 1 hour. Use this to pull short-lived credentials from a vault (`op read`, `gcloud secrets versions access`, etc.) without writing them to env vars. |
-| `LEMONSQUEEZY_ALLOWED_STORE_IDS` | Comma-separated allowlist of store IDs. When set: (1) any tool whose input includes a `storeId` rejects calls to a non-allowed store; (2) tools that *accept* a `storeId` filter (e.g. `ls_list_orders`, `ls_list_subscriptions`) require it — calls without one are blocked so a missing filter cannot return data from every store the API key can see. Tools with no `storeId` field at all (e.g. `ls_refund_order`, `ls_list_stores`) are not gated by this — pair with `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` and `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT`. |
+| `LEMONSQUEEZY_API_KEY_COMMAND` | Command whose stdout produces the API key. Overrides `LEMONSQUEEZY_API_KEY`. Output is cached for 1 hour. Use this to pull short-lived credentials from a vault (`op read`, `gcloud secrets versions access`, etc.) without writing them to env vars. The cache is keyed by the command string, so changing it mid-process refreshes on the next request; it is also invalidated automatically on a 401/403 from the API, so a key rotated upstream takes effect on the next call without waiting for the TTL. |
+| `LEMONSQUEEZY_ALLOWED_STORE_IDS` | Comma-separated allowlist of store IDs. When set: (1) any tool whose input includes a `storeId` rejects calls to a non-allowed store; (2) tools that *accept* a `storeId` filter (e.g. `ls_list_orders`, `ls_list_subscriptions`) require it — calls without one are blocked so a missing filter cannot return data from every store the API key can see. Tools with no `storeId` field at all (e.g. `ls_refund_order`, `ls_cancel_subscription`, `ls_archive_customer`, `ls_delete_webhook`, `ls_delete_discount`, `ls_update_license_key`, `ls_list_stores`) route by their own resource ID and are **not** gated by this allowlist. For those, the only authoritative store boundary is the API key itself — pair this setting with a LemonSqueezy API key scoped to the same store(s), and pair with `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` / `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` for additional defense in depth. |
 | `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` | Rejects `ls_refund_order` and `ls_refund_subscription_invoice` calls above this amount. |
-| `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` | Max destructive tool calls per 60-second rolling window. In-process limit — per MCP server instance, not global; each `npx` cold start resets the window. Counts include `ls_update_license_key` calls that set `disabled: true`. |
-| `LEMONSQUEEZY_LOG=json` | Emit one JSON log line to stderr per tool and HTTP call. Destructive calls are tagged `audit: true` and include their inputs. |
+| `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` | Max destructive tool calls per 60-second rolling window. In-process limit — per MCP server instance, not global; each `npx` cold start resets the window. Counts include `ls_update_license_key` calls that set `disabled: true`, and `ls_update_subscription` calls that pause or switch plan. |
+| `LEMONSQUEEZY_LOG` | Structured-log verbosity to stderr. Set to `all` (or legacy `json`) to log every tool and HTTP call, `audit` to log only destructive-call audit entries plus errors (recommended for production), `error` to log only failures. Unset: no logs. Destructive calls are tagged `audit: true` and include their inputs. |
 
 ### Logging format
 
@@ -191,11 +191,11 @@ HTTP errors include the upstream `X-Request-Id` when present, so support tickets
 
 For unattended/agentic use against a live store, we recommend:
 
-1. Set `LEMONSQUEEZY_ALLOWED_STORE_IDS` to the specific store(s) the agent may touch.
+1. Use a LemonSqueezy API key scoped to the specific store(s) the agent may touch — this is the only authoritative store boundary for tools that route by their own resource ID (refunds, cancels, archive, delete-webhook, etc.). Set `LEMONSQUEEZY_ALLOWED_STORE_IDS` to the same set as a defense-in-depth gate on the tools that *do* take a `storeId`.
 2. Set `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` to a per-call cap well below any single-refund expectation.
 3. Set `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` to a small number (e.g. 5/min) as a runaway-agent circuit breaker.
-4. Set `LEMONSQUEEZY_LOG=json` and ship stderr to your log aggregator. Alert on `status: "guardrail_block"` or elevated error rates per tool.
-5. Run `LEMONSQUEEZY_API_KEY_COMMAND` against a vault-backed secret so credentials can rotate without restarting the server process.
+4. Set `LEMONSQUEEZY_LOG=audit` and ship stderr to your log aggregator. The `audit` level keeps every destructive-call entry plus errors but drops successful reads so log volume stays bounded over weeks of operation. Alert on `status: "guardrail_block"` or elevated error rates per tool. Use `LEMONSQUEEZY_LOG=all` while debugging.
+5. Run `LEMONSQUEEZY_API_KEY_COMMAND` against a vault-backed secret so credentials can rotate without restarting the server process. The API client invalidates its in-process key cache automatically on a 401/403, so a rotated upstream key picks up on the next request rather than waiting on the 1h TTL.
 
 What the server does **not** do and you must own at the caller level:
 

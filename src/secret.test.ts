@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { _resetApiKeyCacheForTest, loadApiKey } from "./secret.js";
+import { _resetApiKeyCacheForTest, invalidateApiKeyCache, loadApiKey } from "./secret.js";
 
 const ENV_KEYS = ["LEMONSQUEEZY_API_KEY", "LEMONSQUEEZY_API_KEY_COMMAND"] as const;
 
@@ -104,5 +104,58 @@ describe("loadApiKey", () => {
     process.env.LEMONSQUEEZY_API_KEY = "fallback_key";
     const key = await loadApiKey();
     assert.equal(key, "fallback_key");
+  });
+
+  it("re-runs the command when LEMONSQUEEZY_API_KEY_COMMAND changes mid-process", async () => {
+    const counterDir = fs.mkdtempSync(path.join(os.tmpdir(), "ls-mcp-secret-"));
+    const counterFile = path.join(counterDir, "count");
+    fs.writeFileSync(counterFile, "0");
+    const escapedCounter = counterFile.replace(/\\/g, "\\\\");
+
+    const scriptA = writeJsScript(
+      `const fs=require('fs');const p='${escapedCounter}';const n=parseInt(fs.readFileSync(p,'utf8'))+1;fs.writeFileSync(p,String(n));console.log('A_'+n);`,
+    );
+    const scriptB = writeJsScript(
+      `const fs=require('fs');const p='${escapedCounter}';const n=parseInt(fs.readFileSync(p,'utf8'))+1;fs.writeFileSync(p,String(n));console.log('B_'+n);`,
+    );
+
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `"${process.execPath}" "${scriptA}"`;
+    const k1 = await loadApiKey();
+    assert.equal(k1, "A_1");
+
+    // Switch to a different command -- fingerprint mismatch must invalidate
+    // the cached A_1 entry; otherwise we'd keep returning the stale value.
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `"${process.execPath}" "${scriptB}"`;
+    const k2 = await loadApiKey();
+    assert.equal(k2, "B_2");
+  });
+
+  it("re-reads env when LEMONSQUEEZY_API_KEY changes mid-process", async () => {
+    process.env.LEMONSQUEEZY_API_KEY = "first_key";
+    const k1 = await loadApiKey();
+    assert.equal(k1, "first_key");
+
+    process.env.LEMONSQUEEZY_API_KEY = "rotated_key";
+    const k2 = await loadApiKey();
+    assert.equal(k2, "rotated_key");
+  });
+
+  it("invalidateApiKeyCache forces a re-read on the next call", async () => {
+    const counterDir = fs.mkdtempSync(path.join(os.tmpdir(), "ls-mcp-secret-"));
+    const counterFile = path.join(counterDir, "count");
+    fs.writeFileSync(counterFile, "0");
+    const escapedCounter = counterFile.replace(/\\/g, "\\\\");
+    const scriptPath = writeJsScript(
+      `const fs=require('fs');const p='${escapedCounter}';const n=parseInt(fs.readFileSync(p,'utf8'))+1;fs.writeFileSync(p,String(n));console.log('key_'+n);`,
+    );
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `"${process.execPath}" "${scriptPath}"`;
+
+    const k1 = await loadApiKey();
+    assert.equal(k1, "key_1");
+
+    invalidateApiKeyCache();
+    const k2 = await loadApiKey();
+    assert.equal(k2, "key_2");
+    assert.equal(fs.readFileSync(counterFile, "utf8"), "2");
   });
 });

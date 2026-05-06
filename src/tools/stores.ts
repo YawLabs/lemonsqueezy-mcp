@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getHandler, listHandler } from "../api.js";
+import { getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const storeTools = [
   {
@@ -13,7 +13,7 @@ export const storeTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      storeId: z.string().max(10000).describe("The store ID"),
+      storeId: lsIdSchema.describe("The store ID"),
       include: z
         .string()
         .max(10000)

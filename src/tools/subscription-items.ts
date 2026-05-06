@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiGet, apiPatch, encodePath, getHandler, listHandler } from "../api.js";
+import { apiGet, apiPatch, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const subscriptionItemTools = [
   {
@@ -13,7 +13,7 @@ export const subscriptionItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().max(10000).describe("The subscription item ID"),
+      subscriptionItemId: lsIdSchema.describe("The subscription item ID"),
       include: z
         .string()
         .max(10000)
@@ -34,8 +34,8 @@ export const subscriptionItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionId: z.string().max(10000).optional().describe("Filter by subscription ID"),
-      priceId: z.string().max(10000).optional().describe("Filter by price ID"),
+      subscriptionId: lsIdSchema.optional().describe("Filter by subscription ID"),
+      priceId: lsIdSchema.optional().describe("Filter by price ID"),
       include: z
         .string()
         .max(10000)
@@ -57,7 +57,7 @@ export const subscriptionItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().max(10000).describe("The subscription item ID to update"),
+      subscriptionItemId: lsIdSchema.describe("The subscription item ID to update"),
       quantity: z.number().int().min(1).describe("New quantity for the subscription item"),
     }),
     handler: async (input: { subscriptionItemId: string; quantity: number }) => {
@@ -81,7 +81,7 @@ export const subscriptionItemTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      subscriptionItemId: z.string().max(10000).describe("The subscription item ID"),
+      subscriptionItemId: lsIdSchema.describe("The subscription item ID"),
     }),
     handler: async (input: { subscriptionItemId: string }) => {
       return apiGet(`/subscription-items/${encodePath(input.subscriptionItemId)}/current-usage`);

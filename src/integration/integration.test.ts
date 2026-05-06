@@ -14,6 +14,7 @@
  */
 
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { customerTools } from "../tools/customers.js";
 import { discountTools } from "../tools/discounts.js";
@@ -33,6 +34,15 @@ const enabled = Boolean(testApiKey && testStoreId);
 
 const CI_PREFIX = "ci-test-";
 const SWEEP_STALE_AFTER_MS = 60 * 60 * 1000; // 1h
+
+// Per-resource unique suffix. The release-trigger workflow serializes via
+// concurrency, but the nightly schedule and `workflow_dispatch` can overlap
+// it -- two runs that started in the same millisecond would collide on a
+// timestamp suffix. UUID v4 has enough entropy that the first 8 hex chars
+// (32 bits) are collision-safe across any realistic concurrent-run window.
+function uniqueSuffix(): string {
+  return randomUUID().replace(/-/g, "").slice(0, 8);
+}
 
 const prevApiKey = process.env.LEMONSQUEEZY_API_KEY;
 
@@ -197,7 +207,7 @@ describe("integration write path (real LemonSqueezy API)", { skip: !enabled }, (
   });
 
   it("creates, reads, and deletes a discount round-trip", async () => {
-    const suffix = Date.now().toString(36);
+    const suffix = uniqueSuffix();
     const name = `${CI_PREFIX}${suffix}`;
     const code = `CITEST${suffix.toUpperCase()}`;
 
@@ -249,7 +259,7 @@ describe("integration webhook write path (real LemonSqueezy API)", { skip: !enab
   });
 
   it("creates, reads, and deletes a webhook round-trip", async () => {
-    const suffix = Date.now().toString(36);
+    const suffix = uniqueSuffix();
     const url = `https://example.com/${CI_PREFIX}${suffix}`;
     const secret = `ci-test-secret-${suffix}`;
 
@@ -299,7 +309,7 @@ describe("integration customer write path (real LemonSqueezy API)", { skip: !ena
   });
 
   it("creates, updates, and archives a customer round-trip", async () => {
-    const suffix = Date.now().toString(36);
+    const suffix = uniqueSuffix();
     const email = `${CI_PREFIX}${suffix}@example.com`;
     const name = `${CI_PREFIX}${suffix}`;
 

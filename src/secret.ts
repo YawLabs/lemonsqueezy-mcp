@@ -7,7 +7,15 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const COMMAND_TIMEOUT_MS = 10_000;
 const COMMAND_MAX_BUFFER = 64 * 1024;
 
-let cached: { key: string; expiresAt: number } | null = null;
+// The cache fingerprint encodes both the source mode (cmd vs env) and the
+// raw source value. If LEMONSQUEEZY_API_KEY_COMMAND or LEMONSQUEEZY_API_KEY
+// changes mid-process, the fingerprint changes too and the next loadApiKey()
+// call refreshes from the new source instead of returning a stale entry.
+// Also lets `invalidateApiKeyCache()` (called from api.ts on 401/403)
+// behave uniformly across both source modes.
+type CachedKey = { fingerprint: string; key: string; expiresAt: number };
+
+let cached: CachedKey | null = null;
 
 // Minimal shell-style tokenizer: bare words, single-quoted, and double-quoted
 // strings, split on whitespace. No backslash escapes inside quotes, no shell
@@ -43,11 +51,25 @@ function parseCommand(cmd: string): { command: string; args: string[] } {
   return { command: parts[0] as string, args: parts.slice(1) };
 }
 
-export async function loadApiKey(): Promise<string> {
-  if (cached && cached.expiresAt > Date.now()) return cached.key;
+function fromCache(fingerprint: string): string | null {
+  if (cached && cached.fingerprint === fingerprint && cached.expiresAt > Date.now()) {
+    return cached.key;
+  }
+  return null;
+}
 
+function intoCache(fingerprint: string, key: string): void {
+  cached = { fingerprint, key, expiresAt: Date.now() + CACHE_TTL_MS };
+}
+
+export async function loadApiKey(): Promise<string> {
   const cmdStr = process.env.LEMONSQUEEZY_API_KEY_COMMAND;
+
   if (cmdStr && cmdStr.trim() !== "") {
+    const fingerprint = `cmd:${cmdStr}`;
+    const hit = fromCache(fingerprint);
+    if (hit !== null) return hit;
+
     const { command, args } = parseCommand(cmdStr);
     let stdout: string;
     try {
@@ -62,18 +84,36 @@ export async function loadApiKey(): Promise<string> {
     }
     const key = stdout.trim();
     if (!key) throw new Error("LEMONSQUEEZY_API_KEY_COMMAND produced empty output");
-    cached = { key, expiresAt: Date.now() + CACHE_TTL_MS };
+    intoCache(fingerprint, key);
     return key;
   }
 
-  const key = process.env.LEMONSQUEEZY_API_KEY;
-  if (!key) {
+  const raw = process.env.LEMONSQUEEZY_API_KEY;
+  if (!raw) {
     throw new Error("LEMONSQUEEZY_API_KEY or LEMONSQUEEZY_API_KEY_COMMAND environment variable is required.");
   }
-  if (key.trim() === "") {
+  if (raw.trim() === "") {
     throw new Error("LEMONSQUEEZY_API_KEY is set but empty. Provide a valid API key.");
   }
-  return key;
+
+  // Env reads are free, but we still cache for parity with the command
+  // path: the fingerprint check picks up a mid-process env mutation
+  // automatically, and invalidateApiKeyCache() works the same way for
+  // both modes (clears any stale entry; next call re-reads the env).
+  const fingerprint = `env:${raw}`;
+  const hit = fromCache(fingerprint);
+  if (hit !== null) return hit;
+  intoCache(fingerprint, raw);
+  return raw;
+}
+
+/**
+ * Drop the cached API key. Called by the API client on 401/403 so a key
+ * rotated upstream takes effect on the next request without waiting for
+ * the 1h TTL. Safe to call when no entry is cached -- no-op.
+ */
+export function invalidateApiKeyCache(): void {
+  cached = null;
 }
 
 export function _resetApiKeyCacheForTest(): void {

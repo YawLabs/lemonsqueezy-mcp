@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
+import { _resetApiKeyCacheForTest } from "../secret.js";
 import { affiliateTools } from "./affiliates.js";
 import { checkoutTools } from "./checkouts.js";
 import { customerTools } from "./customers.js";
@@ -1223,6 +1227,195 @@ describe("Schema validation", () => {
     const tool = findTool(subscriptionTools, "ls_update_subscription");
     const result = inputSchema(tool).safeParse({ subscriptionId: "300", variantId: "0" });
     assert.equal(result.success, false);
+  });
+
+  // The shared lsIdSchema rejects anything that isn't a positive-integer
+  // string. Spot-check across a representative cross-section of tools so a
+  // future regression on one of them (an isolated z.string() slipped past
+  // review) is caught without a per-tool test for every ID field.
+  it("ls_get_customer rejects a non-numeric customerId", () => {
+    const tool = findTool(customerTools, "ls_get_customer");
+    const result = inputSchema(tool).safeParse({ customerId: "abc" });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_get_customer rejects '0' as customerId", () => {
+    const tool = findTool(customerTools, "ls_get_customer");
+    const result = inputSchema(tool).safeParse({ customerId: "0" });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_get_customer accepts a numeric-string customerId", () => {
+    const tool = findTool(customerTools, "ls_get_customer");
+    const result = inputSchema(tool).safeParse({ customerId: "12345" });
+    assert.equal(result.success, true);
+  });
+
+  it("ls_create_checkout rejects a non-numeric variantId in body", () => {
+    const tool = findTool(checkoutTools, "ls_create_checkout");
+    const result = inputSchema(tool).safeParse({ storeId: "1", variantId: "not-a-number" });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_create_discount rejects non-numeric entries inside variantIds[]", () => {
+    const tool = findTool(discountTools, "ls_create_discount");
+    const result = inputSchema(tool).safeParse({
+      storeId: "1",
+      name: "X",
+      code: "X",
+      amount: 10,
+      amountType: "percent",
+      variantIds: ["1", "abc", "2"],
+    });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_list_orders rejects a non-numeric storeId filter", () => {
+    const tool = findTool(orderTools, "ls_list_orders");
+    const result = inputSchema(tool).safeParse({ storeId: "abc" });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_update_customer rejects 'archive' (typo) at the schema level", () => {
+    const tool = findTool(customerTools, "ls_update_customer");
+    const result = inputSchema(tool).safeParse({ customerId: "99", status: "archive" });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_update_customer rejects 'Archived' (case mismatch) at the schema level", () => {
+    const tool = findTool(customerTools, "ls_update_customer");
+    const result = inputSchema(tool).safeParse({ customerId: "99", status: "Archived" });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_update_customer rejects an unrelated status value", () => {
+    const tool = findTool(customerTools, "ls_update_customer");
+    const result = inputSchema(tool).safeParse({ customerId: "99", status: "deleted" });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_update_customer accepts the literal 'archived' status", () => {
+    const tool = findTool(customerTools, "ls_update_customer");
+    const result = inputSchema(tool).safeParse({ customerId: "99", status: "archived" });
+    assert.equal(result.success, true);
+  });
+
+  it("ls_update_customer accepts an update with status omitted", () => {
+    const tool = findTool(customerTools, "ls_update_customer");
+    const result = inputSchema(tool).safeParse({ customerId: "99", name: "New Name" });
+    assert.equal(result.success, true);
+  });
+});
+
+// ─── Auth-failure cache invalidation ───
+
+// A real key rotation upstream surfaces as a 401 (or 403) on the first
+// request after rotation. The api client busts the in-process secret cache
+// so the *next* request re-fetches a fresh key from env or the configured
+// command, instead of waiting on the 1h TTL. The failing call itself is
+// not retried -- a misconfigured key still surfaces loudly to the caller.
+describe("Auth-failure secret cache invalidation", () => {
+  const SAVED_KEY = process.env.LEMONSQUEEZY_API_KEY;
+  const SAVED_CMD = process.env.LEMONSQUEEZY_API_KEY_COMMAND;
+
+  function setupCounterCommand(): { counterFile: string } {
+    const counterDir = fs.mkdtempSync(path.join(os.tmpdir(), "ls-mcp-secret-"));
+    const counterFile = path.join(counterDir, "count");
+    fs.writeFileSync(counterFile, "0");
+    const escapedCounter = counterFile.replace(/\\/g, "\\\\");
+    const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "ls-mcp-secret-"));
+    const scriptPath = path.join(scriptDir, "key.js");
+    fs.writeFileSync(
+      scriptPath,
+      `const fs=require('fs');const p='${escapedCounter}';const n=parseInt(fs.readFileSync(p,'utf8'))+1;fs.writeFileSync(p,String(n));console.log('key_'+n);`,
+    );
+    delete process.env.LEMONSQUEEZY_API_KEY;
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `"${process.execPath}" "${scriptPath}"`;
+    _resetApiKeyCacheForTest();
+    return { counterFile };
+  }
+
+  function teardown() {
+    if (SAVED_KEY === undefined) delete process.env.LEMONSQUEEZY_API_KEY;
+    else process.env.LEMONSQUEEZY_API_KEY = SAVED_KEY;
+    if (SAVED_CMD === undefined) delete process.env.LEMONSQUEEZY_API_KEY_COMMAND;
+    else process.env.LEMONSQUEEZY_API_KEY_COMMAND = SAVED_CMD;
+    _resetApiKeyCacheForTest();
+  }
+
+  it("a 401 from the API invalidates the cached API key", async () => {
+    const { counterFile } = setupCounterCommand();
+    try {
+      const tool = findTool(storeTools, "ls_get_store");
+
+      // Call 1: succeeds, command runs once, value cached.
+      mockFetch(200, { data: { id: "1" } });
+      await tool.handler({ storeId: "1" });
+      assert.equal(fs.readFileSync(counterFile, "utf8"), "1");
+
+      // Call 2: cache hit on key load, then 401 from API -> cache busted.
+      // Counter is still 1 because loadApiKey came from the cache.
+      globalThis.fetch = (async () =>
+        new Response('{"errors":[{"detail":"Unauthorized"}]}', { status: 401 })) as typeof fetch;
+      const r2 = (await tool.handler({ storeId: "1" })) as { ok: boolean; status: number };
+      assert.equal(r2.ok, false);
+      assert.equal(r2.status, 401);
+      assert.equal(fs.readFileSync(counterFile, "utf8"), "1");
+
+      // Call 3: cache was cleared by call 2, so the command runs again.
+      mockFetch(200, { data: { id: "1" } });
+      await tool.handler({ storeId: "1" });
+      assert.equal(fs.readFileSync(counterFile, "utf8"), "2");
+    } finally {
+      teardown();
+    }
+  });
+
+  it("a 403 from the API invalidates the cached API key", async () => {
+    const { counterFile } = setupCounterCommand();
+    try {
+      const tool = findTool(storeTools, "ls_get_store");
+
+      mockFetch(200, { data: { id: "1" } });
+      await tool.handler({ storeId: "1" });
+      assert.equal(fs.readFileSync(counterFile, "utf8"), "1");
+
+      globalThis.fetch = (async () =>
+        new Response('{"errors":[{"detail":"Forbidden"}]}', { status: 403 })) as typeof fetch;
+      const r2 = (await tool.handler({ storeId: "1" })) as { ok: boolean; status: number };
+      assert.equal(r2.ok, false);
+      assert.equal(r2.status, 403);
+
+      mockFetch(200, { data: { id: "1" } });
+      await tool.handler({ storeId: "1" });
+      assert.equal(fs.readFileSync(counterFile, "utf8"), "2");
+    } finally {
+      teardown();
+    }
+  });
+
+  it("a 404 does NOT invalidate the cache (not an auth failure)", async () => {
+    const { counterFile } = setupCounterCommand();
+    try {
+      const tool = findTool(storeTools, "ls_get_store");
+
+      mockFetch(200, { data: { id: "1" } });
+      await tool.handler({ storeId: "1" });
+      assert.equal(fs.readFileSync(counterFile, "utf8"), "1");
+
+      globalThis.fetch = (async () =>
+        new Response('{"errors":[{"detail":"Not Found"}]}', { status: 404 })) as typeof fetch;
+      const r2 = (await tool.handler({ storeId: "999" })) as { ok: boolean; status: number };
+      assert.equal(r2.ok, false);
+      assert.equal(r2.status, 404);
+
+      // Cache survives a 404 -- the next call still reuses the cached key.
+      mockFetch(200, { data: { id: "1" } });
+      await tool.handler({ storeId: "1" });
+      assert.equal(fs.readFileSync(counterFile, "utf8"), "1");
+    } finally {
+      teardown();
+    }
   });
 });
 

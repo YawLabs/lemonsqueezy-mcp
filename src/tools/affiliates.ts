@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getHandler, listHandler } from "../api.js";
+import { getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const affiliateTools = [
   {
@@ -13,7 +13,7 @@ export const affiliateTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      affiliateId: z.string().max(10000).describe("The affiliate ID"),
+      affiliateId: lsIdSchema.describe("The affiliate ID"),
       include: z
         .string()
         .max(10000)

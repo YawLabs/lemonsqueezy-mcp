@@ -3,11 +3,28 @@
  * Uses JSON:API format (application/vnd.api+json).
  */
 
+import { z } from "zod";
 import { logEvent } from "./logger.js";
 import { fetchWithRetry, isAbortTimeoutError, REQUEST_TIMEOUT_MS } from "./retry.js";
-import { loadApiKey } from "./secret.js";
+import { invalidateApiKeyCache, loadApiKey } from "./secret.js";
 
 const BASE_URL = "https://api.lemonsqueezy.com/v1";
+
+/**
+ * Shared schema for LemonSqueezy management-API resource IDs (stores,
+ * customers, products, variants, prices, orders, subscriptions, license keys,
+ * webhooks, etc). LemonSqueezy IDs are positive-integer strings; tightening at
+ * the schema layer means an obvious typo fails fast with a useful error
+ * before a request ever leaves the process.
+ *
+ * Not used for the License API tools (`ls_activate_license`, etc.), whose
+ * `licenseKey` is a printable-key string and whose `instanceId` is a UUID --
+ * those use plain `z.string()` validation.
+ */
+export const lsIdSchema = z
+  .string()
+  .max(10000)
+  .regex(/^[1-9]\d*$/, "ID must be a positive integer string (e.g. '12345')");
 
 /**
  * Encode a value for safe inclusion as a URL path segment. Always use this for
@@ -104,6 +121,14 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
   const requestId = res.headers.get("x-request-id") ?? undefined;
 
   if (!res.ok) {
+    // Auth failure most commonly means the API key was rotated upstream.
+    // Bust the in-process cache so the next call re-fetches a fresh key
+    // (from env or LEMONSQUEEZY_API_KEY_COMMAND) instead of waiting for the
+    // 1h TTL to expire. We do NOT auto-retry the failed call here; the
+    // caller still sees the 401/403 so a misconfigured key surfaces loudly.
+    if (res.status === 401 || res.status === 403) {
+      invalidateApiKeyCache();
+    }
     const errorBody = await res.text();
     try {
       const parsed = JSON.parse(errorBody);
