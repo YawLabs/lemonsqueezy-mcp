@@ -95,6 +95,37 @@ describe("Tool definitions", () => {
   }
 });
 
+describe("ls_update_license_key predicate", () => {
+  const tool = licenseKeyTools.find((t) => t.name === "ls_update_license_key") as
+    | { isDestructive?: (input: Record<string, unknown>) => boolean }
+    | undefined;
+
+  it("should expose an isDestructive predicate", () => {
+    assert.ok(tool, "ls_update_license_key tool not found");
+    assert.equal(typeof tool?.isDestructive, "function");
+  });
+
+  it("treats disabled: true as destructive", () => {
+    assert.equal(tool?.isDestructive?.({ disabled: true }), true);
+  });
+
+  it("treats activationLimit: 0 as destructive", () => {
+    assert.equal(tool?.isDestructive?.({ activationLimit: 0 }), true);
+  });
+
+  it("treats activationLimit: 100 as destructive", () => {
+    assert.equal(tool?.isDestructive?.({ activationLimit: 100 }), true);
+  });
+
+  it("treats expiresAt-only changes as non-destructive", () => {
+    assert.equal(tool?.isDestructive?.({ expiresAt: "2026-01-01" }), false);
+  });
+
+  it("treats an empty input as non-destructive", () => {
+    assert.equal(tool?.isDestructive?.({}), false);
+  });
+});
+
 describe("Tool modules export correct counts", () => {
   it("userTools has 1 tool", () => assert.equal(userTools.length, 1));
   it("storeTools has 2 tools", () => assert.equal(storeTools.length, 2));

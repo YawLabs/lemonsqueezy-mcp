@@ -25,7 +25,7 @@ export const usageRecordTools = [
   {
     name: "ls_list_usage_records",
     description:
-      "List all usage records, optionally filtered by subscription item. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
+      "List all usage records, optionally filtered by subscription item. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool requires at least one of: subscriptionItemId. Even with that set, pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.",
     annotations: {
       title: "List usage records",
       readOnlyHint: true,
@@ -43,6 +43,7 @@ export const usageRecordTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
+    requiredFilters: ["subscriptionItemId"] as const,
     handler: listHandler("/usage-records", { subscriptionItemId: "subscription_item_id" }),
   },
   {

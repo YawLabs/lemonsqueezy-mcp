@@ -68,11 +68,14 @@ export const licenseKeyTools = [
       idempotentHint: true,
       openWorldHint: true,
     },
-    // Disabling a license key revokes a customer's access. Tag the call as
-    // destructive only when `disabled: true` so the rate limiter and audit log
-    // engage on revocation, while benign edits (expiry, activation limit) stay
-    // on the regular path.
-    isDestructive: (input: Record<string, unknown>) => input.disabled === true,
+    // Disabling a license key revokes a customer's access outright. Changing
+    // the activation limit can also revoke access -- setting it to 0, or to
+    // any value below the customer's current activation count, kicks
+    // already-activated instances offline. We can't tell from the input alone
+    // whether a given limit change shrinks or grows, so treat ANY
+    // `activationLimit` change as destructive alongside `disabled: true`.
+    // Benign edits (expiry) stay on the regular path.
+    isDestructive: (input: Record<string, unknown>) => input.disabled === true || input.activationLimit !== undefined,
     inputSchema: z.object({
       licenseKeyId: lsIdSchema.describe("The license key ID to update"),
       activationLimit: z

@@ -25,7 +25,7 @@ export const orderItemTools = [
   {
     name: "ls_list_order_items",
     description:
-      "List all order items, optionally filtered by order or product. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
+      "List all order items, optionally filtered by order or product. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool requires at least one of: orderId, productId, variantId. Even with that set, pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.",
     annotations: {
       title: "List order items",
       readOnlyHint: true,
@@ -45,6 +45,7 @@ export const orderItemTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
+    requiredFilters: ["orderId", "productId", "variantId"] as const,
     handler: listHandler("/order-items", { orderId: "order_id", productId: "product_id", variantId: "variant_id" }),
   },
 ] as const;

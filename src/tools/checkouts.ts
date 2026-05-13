@@ -65,7 +65,7 @@ export const checkoutTools = [
         .array(lsIdSchema)
         .optional()
         .describe("Array of variant IDs to show on the checkout (for products with multiple variants)"),
-      email: z.string().max(10000).optional().describe("Prefill customer email"),
+      email: z.string().email().max(320).optional().describe("Prefill customer email"),
       name: z.string().max(10000).optional().describe("Prefill customer name"),
       billingAddressCountry: z.string().max(10000).optional().describe("Prefill billing country (ISO 3166-1 alpha-2)"),
       billingAddressZip: z.string().max(10000).optional().describe("Prefill billing ZIP/postal code"),

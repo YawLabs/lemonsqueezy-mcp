@@ -1,10 +1,24 @@
-// Scope: the store allowlist (LEMONSQUEEZY_ALLOWED_STORE_IDS) only gates tools
-// whose input schema carries a `storeId` field. Many destructive ID-targeted
-// tools — refunds, subscription cancel/update, customer archive,
-// discount/webhook delete, license-key disable, usage records — route by their
-// own resource ID and bypass the allowlist entirely. Pair with a
-// least-privilege LemonSqueezy API key scoped to the same stores when the
-// boundary needs to be enforced rather than advisory.
+// Scope: the store allowlist (LEMONSQUEEZY_ALLOWED_STORE_IDS) gates tools by
+// three layered mechanisms, each closing part of the cross-store leakage gap:
+//
+//   1. Tools whose input schema carries a `storeId` field are forced to
+//      specify a storeId that's in the allowlist (checkStoreScopedToolInput).
+//   2. List-by-parent tools without a `storeId` field (e.g. ls_list_prices,
+//      ls_list_files) can declare `requiredFilters: ["variantId", ...]` --
+//      when the allowlist is active, at least one such filter must be set,
+//      forcing the caller to scope by a parent resource ID. This is opt-in
+//      per tool because not every list endpoint has a meaningful parent
+//      filter (ls_list_affiliates is an example).
+//   3. Many destructive ID-targeted tools -- refunds, subscription cancel/
+//      update, customer archive, discount/webhook delete, license-key
+//      disable, usage records -- route by their own resource ID and bypass
+//      the allowlist entirely.
+//
+// Even with (1) and (2) in place, a caller scoping by a parent ID that
+// belongs to a non-allowed store will still get cross-store data back. The
+// LemonSqueezy API key's visibility is the true boundary. Pair this allowlist
+// with a least-privilege API key scoped to the same stores when the boundary
+// needs to be enforced rather than advisory.
 
 export class GuardrailError extends Error {
   constructor(message: string) {
@@ -90,24 +104,53 @@ export function isStoreAllowlistActive(): boolean {
   return loadOptions().allowedStoreIds !== null;
 }
 
+type ScopableTool = {
+  inputSchema: { shape: Record<string, unknown> };
+  requiredFilters?: readonly string[];
+};
+
+function isPresent(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "string" && value === "") return false;
+  if (Array.isArray(value) && value.length === 0) return false;
+  return true;
+}
+
 /**
- * Apply the store allowlist gate to a tool input. When the allowlist is set
- * and the tool accepts a `storeId`, the call must specify it — otherwise a
- * list-style call (e.g. ls_list_subscriptions) without a filter would silently
- * return data from every store the API key can see.
+ * Apply the store allowlist gate to a tool input. When the allowlist is set:
  *
- * `toolAcceptsStoreId` is computed once per registration from the tool's
- * input schema; pass `false` for tools that have no `storeId` field at all.
+ *   - If the tool's input schema carries a `storeId` field, the call must
+ *     specify a valid storeId -- otherwise a list-style call (e.g.
+ *     ls_list_subscriptions) without a filter would silently return data
+ *     from every store the API key can see.
+ *   - If the tool declares `requiredFilters: [...]` (used for list-by-parent
+ *     tools that lack a `storeId` field), at least one of those filter keys
+ *     must be present with a defined non-empty value in the input. This is
+ *     a partial mitigation -- a caller can still scope by a parent ID that
+ *     belongs to a non-allowed store, so pair with a scoped API key for
+ *     true cross-store enforcement.
+ *
+ * The full tool object is passed in (not just a boolean) so this function
+ * can read both `inputSchema.shape` and `requiredFilters` directly.
  */
-export function checkStoreScopedToolInput(toolAcceptsStoreId: boolean, input: Record<string, unknown>): void {
-  if (!toolAcceptsStoreId) return;
-  const raw = input.storeId;
-  if (raw !== undefined && raw !== null && raw !== "") {
-    checkStoreAllowed(String(raw));
-    return;
+export function checkStoreScopedToolInput(tool: ScopableTool, input: Record<string, unknown>): void {
+  const toolAcceptsStoreId = "storeId" in tool.inputSchema.shape;
+  if (toolAcceptsStoreId) {
+    const raw = input.storeId;
+    if (raw !== undefined && raw !== null && raw !== "") {
+      checkStoreAllowed(String(raw));
+    } else if (isStoreAllowlistActive()) {
+      throw new GuardrailError("storeId is required when LEMONSQUEEZY_ALLOWED_STORE_IDS is set");
+    }
   }
-  if (isStoreAllowlistActive()) {
-    throw new GuardrailError("storeId is required when LEMONSQUEEZY_ALLOWED_STORE_IDS is set");
+
+  if (tool.requiredFilters && tool.requiredFilters.length > 0 && isStoreAllowlistActive()) {
+    const anyPresent = tool.requiredFilters.some((key) => isPresent(input[key]));
+    if (!anyPresent) {
+      throw new GuardrailError(
+        `At least one of [${tool.requiredFilters.join(", ")}] is required when LEMONSQUEEZY_ALLOWED_STORE_IDS is set`,
+      );
+    }
   }
 }
 

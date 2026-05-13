@@ -169,45 +169,135 @@ describe("isStoreAllowlistActive", () => {
   });
 });
 
+// Build a mock tool shape for the new checkStoreScopedToolInput signature.
+// Only `inputSchema.shape` keys matter for the storeId branch; the values
+// are unused so an empty `{}` per key is fine.
+function mockTool(opts: { fields?: string[]; requiredFilters?: readonly string[] } = {}): {
+  inputSchema: { shape: Record<string, unknown> };
+  requiredFilters?: readonly string[];
+} {
+  const shape: Record<string, unknown> = {};
+  for (const f of opts.fields ?? []) shape[f] = {};
+  const tool: { inputSchema: { shape: Record<string, unknown> }; requiredFilters?: readonly string[] } = {
+    inputSchema: { shape },
+  };
+  if (opts.requiredFilters) tool.requiredFilters = opts.requiredFilters;
+  return tool;
+}
+
 describe("checkStoreScopedToolInput", () => {
   beforeEach(() => _resetGuardrailsForTest());
   afterEach(() => _resetGuardrailsForTest());
 
   it("no-op when tool does not accept storeId", () => {
     withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
-      assert.doesNotThrow(() => checkStoreScopedToolInput(false, {}));
+      assert.doesNotThrow(() => checkStoreScopedToolInput(mockTool(), {}));
     });
   });
 
   it("no-op when allowlist unset and storeId omitted", () => {
     withEnv({}, () => {
-      assert.doesNotThrow(() => checkStoreScopedToolInput(true, {}));
+      assert.doesNotThrow(() => checkStoreScopedToolInput(mockTool({ fields: ["storeId"] }), {}));
     });
   });
 
   it("requires storeId when allowlist is set and tool accepts it", () => {
     withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
-      assert.throws(() => checkStoreScopedToolInput(true, {}), GuardrailError);
+      assert.throws(() => checkStoreScopedToolInput(mockTool({ fields: ["storeId"] }), {}), GuardrailError);
     });
   });
 
   it("rejects empty-string storeId when allowlist is set", () => {
     withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
-      assert.throws(() => checkStoreScopedToolInput(true, { storeId: "" }), GuardrailError);
+      assert.throws(
+        () => checkStoreScopedToolInput(mockTool({ fields: ["storeId"] }), { storeId: "" }),
+        GuardrailError,
+      );
     });
   });
 
   it("delegates to checkStoreAllowed when storeId is present", () => {
     withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1,2" }, () => {
-      assert.doesNotThrow(() => checkStoreScopedToolInput(true, { storeId: "2" }));
-      assert.throws(() => checkStoreScopedToolInput(true, { storeId: "99" }), GuardrailError);
+      assert.doesNotThrow(() => checkStoreScopedToolInput(mockTool({ fields: ["storeId"] }), { storeId: "2" }));
+      assert.throws(
+        () => checkStoreScopedToolInput(mockTool({ fields: ["storeId"] }), { storeId: "99" }),
+        GuardrailError,
+      );
     });
   });
 
   it("coerces a numeric storeId to string before checking", () => {
     withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "42" }, () => {
-      assert.doesNotThrow(() => checkStoreScopedToolInput(true, { storeId: 42 }));
-      assert.throws(() => checkStoreScopedToolInput(true, { storeId: 99 }), GuardrailError);
+      assert.doesNotThrow(() => checkStoreScopedToolInput(mockTool({ fields: ["storeId"] }), { storeId: 42 }));
+      assert.throws(
+        () => checkStoreScopedToolInput(mockTool({ fields: ["storeId"] }), { storeId: 99 }),
+        GuardrailError,
+      );
+    });
+  });
+
+  describe("requiredFilters", () => {
+    it("no-op when allowlist unset, even if no filters provided", () => {
+      withEnv({}, () => {
+        const tool = mockTool({ requiredFilters: ["x", "y"] });
+        assert.doesNotThrow(() => checkStoreScopedToolInput(tool, {}));
+      });
+    });
+
+    it("throws when allowlist set and no filters provided", () => {
+      withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
+        const tool = mockTool({ requiredFilters: ["x", "y"] });
+        assert.throws(() => checkStoreScopedToolInput(tool, {}), GuardrailError);
+      });
+    });
+
+    it("passes when allowlist set and only x provided", () => {
+      withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
+        const tool = mockTool({ requiredFilters: ["x", "y"] });
+        assert.doesNotThrow(() => checkStoreScopedToolInput(tool, { x: "abc" }));
+      });
+    });
+
+    it("passes when allowlist set and only y provided", () => {
+      withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
+        const tool = mockTool({ requiredFilters: ["x", "y"] });
+        assert.doesNotThrow(() => checkStoreScopedToolInput(tool, { y: "abc" }));
+      });
+    });
+
+    it("passes when allowlist set and both provided", () => {
+      withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
+        const tool = mockTool({ requiredFilters: ["x", "y"] });
+        assert.doesNotThrow(() => checkStoreScopedToolInput(tool, { x: "abc", y: "def" }));
+      });
+    });
+
+    it("throws when allowlist set and x is explicit undefined", () => {
+      withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
+        const tool = mockTool({ requiredFilters: ["x", "y"] });
+        assert.throws(() => checkStoreScopedToolInput(tool, { x: undefined }), GuardrailError);
+      });
+    });
+
+    it("throws when allowlist set and x is empty string", () => {
+      withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
+        const tool = mockTool({ requiredFilters: ["x", "y"] });
+        assert.throws(() => checkStoreScopedToolInput(tool, { x: "" }), GuardrailError);
+      });
+    });
+
+    it("throws when allowlist set and x is empty array", () => {
+      withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
+        const tool = mockTool({ requiredFilters: ["x", "y"] });
+        assert.throws(() => checkStoreScopedToolInput(tool, { x: [] }), GuardrailError);
+      });
+    });
+
+    it("accepts numeric zero as present (defensive)", () => {
+      withEnv({ LEMONSQUEEZY_ALLOWED_STORE_IDS: "1" }, () => {
+        const tool = mockTool({ requiredFilters: ["x"] });
+        assert.doesNotThrow(() => checkStoreScopedToolInput(tool, { x: 0 }));
+      });
     });
   });
 });

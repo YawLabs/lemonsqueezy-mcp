@@ -9,6 +9,7 @@ import {
   isDestructiveCall,
 } from "./guardrails.js";
 import { logEvent } from "./logger.js";
+import { redactSecrets } from "./redact.js";
 import { affiliateTools } from "./tools/affiliates.js";
 import { checkoutTools } from "./tools/checkouts.js";
 import { customerTools } from "./tools/customers.js";
@@ -80,8 +81,6 @@ const server = new McpServer({
 
 // Register all tools with annotations
 for (const tool of allTools) {
-  const toolAcceptsStoreId = "storeId" in tool.inputSchema.shape;
-
   server.tool(
     tool.name,
     tool.description,
@@ -103,16 +102,17 @@ for (const tool of allTools) {
       const start = Date.now();
       try {
         if (isDestructive) checkDestructiveRateLimit();
-        checkStoreScopedToolInput(toolAcceptsStoreId, input);
+        checkStoreScopedToolInput(tool, input);
 
         const result = await (tool.handler as (input: unknown) => Promise<unknown>)(input);
         const response = result as { ok: boolean; data?: unknown; error?: string; requestId?: string };
 
         const latency_ms = Date.now() - start;
-        // Inputs are logged ONLY for destructive calls. Today no destructive
-        // tool accepts a secret-typed input (webhook secret tools are
-        // non-destructive). If a tool with secret-bearing inputs is flipped
-        // to destructiveHint:true, add a redaction step before logging.
+        // Inputs are logged ONLY for destructive calls. No destructive
+        // tool today accepts a secret-typed input (webhook secret tools
+        // are non-destructive), but redactSecrets() runs unconditionally
+        // as defense-in-depth -- if a tool with secret-bearing inputs is
+        // ever flipped to destructiveHint:true, the audit log won't leak.
         logEvent({
           event: "tool_call",
           tool: tool.name,
@@ -121,7 +121,7 @@ for (const tool of allTools) {
           request_id: response.requestId,
           error: response.ok ? undefined : response.error,
           audit: isDestructive ? true : undefined,
-          inputs: isDestructive ? input : undefined,
+          inputs: isDestructive ? redactSecrets(input) : undefined,
         });
 
         if (!response.ok) {
@@ -150,7 +150,7 @@ for (const tool of allTools) {
           latency_ms,
           error: message,
           audit: isDestructive ? true : undefined,
-          inputs: isDestructive ? input : undefined,
+          inputs: isDestructive ? redactSecrets(input) : undefined,
         });
         return {
           content: [{ type: "text" as const, text: `Error: ${message}` }],

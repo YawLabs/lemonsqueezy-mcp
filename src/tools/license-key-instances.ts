@@ -25,7 +25,7 @@ export const licenseKeyInstanceTools = [
   {
     name: "ls_list_license_key_instances",
     description:
-      "List all license key instances (activations), optionally filtered by license key. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
+      "List all license key instances (activations), optionally filtered by license key. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool requires at least one of: licenseKeyId. Even with that set, pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.",
     annotations: {
       title: "List license key instances",
       readOnlyHint: true,
@@ -43,6 +43,7 @@ export const licenseKeyInstanceTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
+    requiredFilters: ["licenseKeyId"] as const,
     handler: listHandler("/license-key-instances", { licenseKeyId: "license_key_id" }),
   },
 ] as const;

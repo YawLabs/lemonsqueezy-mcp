@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import { logEvent } from "./logger.js";
-import { fetchWithRetry, isAbortTimeoutError, REQUEST_TIMEOUT_MS } from "./retry.js";
+import { fetchWithRetry, isAbortTimeoutError, isRetryTimeoutError } from "./retry.js";
 import { invalidateApiKeyCache, loadApiKey } from "./secret.js";
 
 const BASE_URL = "https://api.lemonsqueezy.com/v1";
@@ -79,6 +79,25 @@ function decorateError(error: string, requestId: string | undefined): string {
   return requestId ? `${error} (request_id: ${requestId})` : error;
 }
 
+/**
+ * Format the user-facing timeout message. `fetchWithRetry` enriches its
+ * thrown timeout with wall-clock `elapsedMs` and `attempts` so the message
+ * reflects actual time spent across the retry loop, not just the
+ * per-attempt budget. Falls back to the per-attempt value for any
+ * unenriched timeout (defensive -- shouldn't happen via this codepath).
+ *
+ * Format is fixed and ASCII-only because it lands in stdio MCP terminal
+ * output: `Request timed out after Xs (N attempts)`.
+ */
+function formatTimeoutMessage(err: unknown, fallbackElapsedMs: number): string {
+  if (isRetryTimeoutError(err)) {
+    const seconds = Math.max(1, Math.round(err.elapsedMs / 1000));
+    return `Request timed out after ${seconds}s (${err.attempts} attempts)`;
+  }
+  const seconds = Math.max(1, Math.round(fallbackElapsedMs / 1000));
+  return `Request timed out after ${seconds}s (1 attempts)`;
+}
+
 async function apiRequest<T = unknown>(method: string, path: string, body?: unknown): Promise<ApiResponse<T>> {
   const start = Date.now();
   const apiKey = await loadApiKey();
@@ -108,7 +127,7 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
   } catch (err) {
     const latency_ms = Date.now() - start;
     if (isAbortTimeoutError(err)) {
-      const error = `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`;
+      const error = formatTimeoutMessage(err, latency_ms);
       logEvent({ event: "http_call", method, path, status: "timeout", latency_ms, error });
       return { ok: false, status: 0, error };
     }
@@ -216,7 +235,7 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
   } catch (err) {
     const latency_ms = Date.now() - start;
     if (isAbortTimeoutError(err)) {
-      const error = `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`;
+      const error = formatTimeoutMessage(err, latency_ms);
       logEvent({ event: "http_call", method: "POST", path, status: "timeout", latency_ms, error });
       return { ok: false, status: 0, error };
     }

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { backoffDelay, fetchWithRetry, isAbortTimeoutError, parseRetryAfterMs } from "./retry.js";
+import {
+  backoffDelay,
+  fetchWithRetry,
+  isAbortTimeoutError,
+  isRetryTimeoutError,
+  OVERALL_DEADLINE_MS,
+  parseRetryAfterMs,
+} from "./retry.js";
 
 function fakeSleep() {
   const sleeps: number[] = [];
@@ -224,5 +231,264 @@ describe("fetchWithRetry", () => {
       /boom/,
     );
     assert.equal(calls.length, 1);
+  });
+});
+
+/**
+ * Fake clock that advances by however long sleeps are scheduled for, so
+ * deadline arithmetic in fetchWithRetry behaves deterministically without
+ * burning wall-clock in the test.
+ */
+function fakeClock(startAt = 1_000_000) {
+  let nowMs = startAt;
+  return {
+    now: () => nowMs,
+    sleep: (ms: number) => {
+      nowMs += ms;
+      return Promise.resolve();
+    },
+    advance: (ms: number) => {
+      nowMs += ms;
+    },
+  };
+}
+
+describe("isRetryTimeoutError", () => {
+  it("detects shape with elapsedMs + attempts", () => {
+    const err = Object.assign(new Error("x"), { name: "TimeoutError", elapsedMs: 100, attempts: 2 });
+    assert.ok(isRetryTimeoutError(err));
+  });
+  it("rejects bare AbortSignal.timeout error (no fields)", () => {
+    assert.equal(isRetryTimeoutError({ name: "TimeoutError" }), false);
+  });
+  it("rejects wrong name", () => {
+    assert.equal(isRetryTimeoutError({ name: "AbortError", elapsedMs: 100, attempts: 1 }), false);
+  });
+});
+
+describe("OVERALL_DEADLINE_MS", () => {
+  it("defaults to 90s", () => {
+    assert.equal(OVERALL_DEADLINE_MS, 90_000);
+  });
+});
+
+describe("fetchWithRetry timeout error enrichment", () => {
+  function timeoutErr() {
+    return Object.assign(new Error("timeout"), { name: "TimeoutError" });
+  }
+
+  it("enriches thrown error with elapsedMs + attempts on exhausted retries", async () => {
+    const clock = fakeClock();
+    // Each fetch call advances the clock by 30s (per-attempt timeout) so
+    // elapsedMs reflects realistic accumulation across 4 attempts.
+    const fn: typeof fetch = (async () => {
+      clock.advance(30_000);
+      throw timeoutErr();
+    }) as typeof fetch;
+    let caught: unknown;
+    try {
+      await fetchWithRetry(
+        "https://x",
+        { method: "GET" },
+        {
+          idempotent: true,
+          fetchImpl: fn,
+          sleep: clock.sleep,
+          now: clock.now,
+          rand: () => 0,
+          // Disable the overall deadline for this test so we can exercise
+          // pure max-attempts exhaustion.
+          deadlineMs: 10 * 60 * 1000,
+        },
+      );
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(isRetryTimeoutError(caught), "should be enriched RetryTimeoutError");
+    if (!isRetryTimeoutError(caught)) return;
+    assert.equal(caught.attempts, 4);
+    // 4 fetches of 30s + 3 backoff sleeps (250+500+1000ms = 1.75s) = 121.75s.
+    assert.ok(caught.elapsedMs >= 120_000, `elapsedMs too small: ${caught.elapsedMs}`);
+    assert.ok(caught.elapsedMs <= 123_000, `elapsedMs too large: ${caught.elapsedMs}`);
+  });
+
+  it("reports 1 attempt for single-attempt timeout on non-idempotent request", async () => {
+    const clock = fakeClock();
+    const fn: typeof fetch = (async () => {
+      clock.advance(30_000);
+      throw timeoutErr();
+    }) as typeof fetch;
+    let caught: unknown;
+    try {
+      await fetchWithRetry(
+        "https://x",
+        { method: "POST" },
+        { idempotent: false, fetchImpl: fn, sleep: clock.sleep, now: clock.now },
+      );
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(isRetryTimeoutError(caught));
+    if (!isRetryTimeoutError(caught)) return;
+    assert.equal(caught.attempts, 1);
+    assert.ok(caught.elapsedMs >= 30_000 && caught.elapsedMs <= 31_000);
+  });
+
+  it("does not enrich (does not throw a timeout) on fast success", async () => {
+    const { fn } = fakeFetch([new Response("{}", { status: 200 })]);
+    const clock = fakeClock();
+    const res = await fetchWithRetry(
+      "https://x",
+      { method: "GET" },
+      { idempotent: true, fetchImpl: fn, sleep: clock.sleep, now: clock.now },
+    );
+    assert.equal(res.status, 200);
+  });
+});
+
+describe("fetchWithRetry overall deadline", () => {
+  function err500() {
+    return new Response("{}", { status: 500 });
+  }
+  function err429(retryAfter = "1") {
+    return new Response("{}", { status: 429, headers: { "retry-after": retryAfter } });
+  }
+  function timeoutErr() {
+    return Object.assign(new Error("timeout"), { name: "TimeoutError" });
+  }
+
+  it("stops retrying 5xx and returns last response when next sleep would exceed deadline", async () => {
+    const clock = fakeClock();
+    // Each fetch is "instant" (no advance) so only the backoff sleeps eat
+    // the clock. With deadlineMs=600 and base backoffs 250/500/1000, the
+    // first sleep fits (250) but the second (500) would push us to
+    // 250+30s-fetch... actually fetches are instant here; clock advances
+    // are pure sleeps. First sleep advances to 250, second would advance
+    // to 750 which exceeds 600.
+    const { fn, calls } = fakeFetch([err500(), err500(), err500(), err500()]);
+    const res = await fetchWithRetry(
+      "https://x",
+      { method: "GET" },
+      {
+        idempotent: true,
+        fetchImpl: fn,
+        sleep: clock.sleep,
+        now: clock.now,
+        rand: () => 0,
+        deadlineMs: 600,
+      },
+    );
+    assert.equal(res.status, 500);
+    // First attempt + first sleep (250ms) + second attempt; second sleep
+    // (500ms) would push to 750ms > 600 deadline, so return after 2nd 500.
+    assert.equal(calls.length, 2);
+  });
+
+  it("stops retrying 429 and returns last response when retry-after wait would exceed deadline", async () => {
+    const clock = fakeClock();
+    // retry-after: 1s. deadline is 500ms. First attempt returns 429; the
+    // 1s wait would exceed the deadline, so we bail after one call.
+    const { fn, calls } = fakeFetch([err429("1"), new Response("{}", { status: 200 })]);
+    const res = await fetchWithRetry(
+      "https://x",
+      { method: "GET" },
+      {
+        idempotent: true,
+        fetchImpl: fn,
+        sleep: clock.sleep,
+        now: clock.now,
+        deadlineMs: 500,
+      },
+    );
+    assert.equal(res.status, 429);
+    assert.equal(calls.length, 1);
+  });
+
+  it("throws enriched timeout when deadline blocks next sleep after a timeout", async () => {
+    const clock = fakeClock();
+    // First fetch times out (advances 30s), second attempt would need a
+    // backoff sleep; deadline is 30s so the sleep would exceed it.
+    const fn: typeof fetch = (async () => {
+      clock.advance(30_000);
+      throw timeoutErr();
+    }) as typeof fetch;
+    let caught: unknown;
+    try {
+      await fetchWithRetry(
+        "https://x",
+        { method: "GET" },
+        {
+          idempotent: true,
+          fetchImpl: fn,
+          sleep: clock.sleep,
+          now: clock.now,
+          rand: () => 0,
+          deadlineMs: 30_000,
+        },
+      );
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(isRetryTimeoutError(caught));
+    if (!isRetryTimeoutError(caught)) return;
+    assert.equal(caught.attempts, 1);
+    assert.ok(caught.elapsedMs >= 30_000);
+  });
+
+  it("does not fire on a fast success well inside the deadline", async () => {
+    const { fn, calls } = fakeFetch([new Response("{}", { status: 200 })]);
+    const clock = fakeClock();
+    const res = await fetchWithRetry(
+      "https://x",
+      { method: "GET" },
+      {
+        idempotent: true,
+        fetchImpl: fn,
+        sleep: clock.sleep,
+        now: clock.now,
+        deadlineMs: 90_000,
+      },
+    );
+    assert.equal(res.status, 200);
+    assert.equal(calls.length, 1);
+  });
+
+  it("does not fire on a fast 5xx-then-recover within the deadline", async () => {
+    const { fn, calls } = fakeFetch([err500(), new Response("{}", { status: 200 })]);
+    const clock = fakeClock();
+    const res = await fetchWithRetry(
+      "https://x",
+      { method: "GET" },
+      {
+        idempotent: true,
+        fetchImpl: fn,
+        sleep: clock.sleep,
+        now: clock.now,
+        rand: () => 0,
+        deadlineMs: 90_000,
+      },
+    );
+    assert.equal(res.status, 200);
+    assert.equal(calls.length, 2);
+  });
+
+  it("default deadline applies when caller does not set deadlineMs", async () => {
+    // No deadlineMs passed -- the default OVERALL_DEADLINE_MS (90s) is in
+    // effect. A retry burst that fits well inside 90s succeeds normally.
+    const { fn, calls } = fakeFetch([err500(), err500(), new Response("{}", { status: 200 })]);
+    const clock = fakeClock();
+    const res = await fetchWithRetry(
+      "https://x",
+      { method: "GET" },
+      {
+        idempotent: true,
+        fetchImpl: fn,
+        sleep: clock.sleep,
+        now: clock.now,
+        rand: () => 0,
+      },
+    );
+    assert.equal(res.status, 200);
+    assert.equal(calls.length, 3);
   });
 });
