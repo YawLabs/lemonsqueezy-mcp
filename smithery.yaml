@@ -1,0 +1,56 @@
+# Smithery configuration file: https://smithery.ai/docs/build/project-config/smithery.yaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    type: object
+    required:
+      - lemonsqueezyApiKey
+    properties:
+      lemonsqueezyApiKey:
+        type: string
+        description: LemonSqueezy API key (Bearer token). Required.
+      lemonsqueezyApiKeyCommand:
+        type: string
+        description: Shell command that prints the API key on stdout. Used in place of lemonsqueezyApiKey for secret managers (1Password, pass, etc.).
+      lemonsqueezyTestApiKey:
+        type: string
+        description: Separate API key used by the integration test suite. Optional.
+      lemonsqueezyAllowedStoreIds:
+        type: string
+        description: Comma-separated allowlist of store IDs. When set, the server refuses operations targeting any store ID outside the list.
+      lemonsqueezyMaxRefundAmountCents:
+        type: string
+        description: Cap on a single refund amount, in cents. Refund calls above this fail before reaching the API.
+      lemonsqueezyDestructiveRateLimit:
+        type: string
+        description: Rate limit for destructive operations (refunds, cancellations, deletes). Format depends on server defaults.
+      lemonsqueezyLog:
+        type: string
+        description: Structured-log level (stderr). One of off, error, audit (recommended for production), all, json. Unset disables logging.
+        enum:
+          - "off"
+          - error
+          - audit
+          - all
+          - json
+  commandFunction:
+    # Returns the CLI invocation that starts the MCP server on stdio.
+    # Smithery validates the inbound config against configSchema before
+    # calling this function, so required fields are guaranteed present.
+    |-
+      (config) => {
+        const env = { LEMONSQUEEZY_API_KEY: config.lemonsqueezyApiKey };
+        if (config.lemonsqueezyApiKeyCommand) env.LEMONSQUEEZY_API_KEY_COMMAND = config.lemonsqueezyApiKeyCommand;
+        if (config.lemonsqueezyTestApiKey) env.LEMONSQUEEZY_TEST_API_KEY = config.lemonsqueezyTestApiKey;
+        if (config.lemonsqueezyAllowedStoreIds) env.LEMONSQUEEZY_ALLOWED_STORE_IDS = config.lemonsqueezyAllowedStoreIds;
+        if (config.lemonsqueezyMaxRefundAmountCents) env.LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS = config.lemonsqueezyMaxRefundAmountCents;
+        if (config.lemonsqueezyDestructiveRateLimit) env.LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT = config.lemonsqueezyDestructiveRateLimit;
+        if (config.lemonsqueezyLog) env.LEMONSQUEEZY_LOG = config.lemonsqueezyLog;
+        return {
+          command: 'npx',
+          args: ['-y', '@yawlabs/lemonsqueezy-mcp'],
+          env,
+        };
+      }

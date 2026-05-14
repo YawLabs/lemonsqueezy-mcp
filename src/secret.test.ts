@@ -5,7 +5,25 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { _resetApiKeyCacheForTest, invalidateApiKeyCache, loadApiKey } from "./secret.js";
 
-const ENV_KEYS = ["LEMONSQUEEZY_API_KEY", "LEMONSQUEEZY_API_KEY_COMMAND"] as const;
+const ENV_KEYS = ["LEMONSQUEEZY_API_KEY", "LEMONSQUEEZY_API_KEY_COMMAND", "LEMONSQUEEZY_TEST_API_KEY"] as const;
+
+type WriteFn = typeof process.stderr.write;
+
+function captureStderr(): { lines: string[]; restore: () => void } {
+  const lines: string[] = [];
+  const original = process.stderr.write.bind(process.stderr) as WriteFn;
+  const override = ((chunk: string | Uint8Array) => {
+    lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    return true;
+  }) as WriteFn;
+  process.stderr.write = override;
+  return {
+    lines,
+    restore: () => {
+      process.stderr.write = original;
+    },
+  };
+}
 
 function saveEnv() {
   const snapshot: Record<string, string | undefined> = {};
@@ -157,5 +175,128 @@ describe("loadApiKey", () => {
     const k2 = await loadApiKey();
     assert.equal(k2, "key_2");
     assert.equal(fs.readFileSync(counterFile, "utf8"), "2");
+  });
+
+  it("reads from LEMONSQUEEZY_TEST_API_KEY when set alone", async () => {
+    process.env.LEMONSQUEEZY_TEST_API_KEY = "sk_test_xyz";
+    const cap = captureStderr();
+    try {
+      const key = await loadApiKey();
+      assert.equal(key, "sk_test_xyz");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("prefers LEMONSQUEEZY_TEST_API_KEY over LEMONSQUEEZY_API_KEY when both are set", async () => {
+    process.env.LEMONSQUEEZY_API_KEY = "prod_key";
+    process.env.LEMONSQUEEZY_TEST_API_KEY = "test_key";
+    const cap = captureStderr();
+    try {
+      const key = await loadApiKey();
+      assert.equal(key, "test_key");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("LEMONSQUEEZY_API_KEY_COMMAND still wins over the test key when all three are set", async () => {
+    process.env.LEMONSQUEEZY_API_KEY = "prod_key";
+    process.env.LEMONSQUEEZY_TEST_API_KEY = "test_key";
+    const scriptPath = writeJsScript("console.log('cmd_key');");
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `"${process.execPath}" "${scriptPath}"`;
+    const cap = captureStderr();
+    try {
+      const key = await loadApiKey();
+      assert.equal(key, "cmd_key");
+      // No test_mode notice should be printed when the command path wins.
+      const testModeLines = cap.lines.filter((l) => l.includes('"event":"test_mode"'));
+      assert.equal(testModeLines.length, 0);
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("treats a whitespace-only LEMONSQUEEZY_TEST_API_KEY as unset", async () => {
+    process.env.LEMONSQUEEZY_TEST_API_KEY = "   ";
+    process.env.LEMONSQUEEZY_API_KEY = "prod_fallback";
+    const cap = captureStderr();
+    try {
+      const key = await loadApiKey();
+      assert.equal(key, "prod_fallback");
+      // No test_mode notice should fire when test key is whitespace.
+      const testModeLines = cap.lines.filter((l) => l.includes('"event":"test_mode"'));
+      assert.equal(testModeLines.length, 0);
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("invalidates the cache when switching from test key to prod key mid-process", async () => {
+    process.env.LEMONSQUEEZY_TEST_API_KEY = "test_key";
+    const cap = captureStderr();
+    try {
+      const k1 = await loadApiKey();
+      assert.equal(k1, "test_key");
+
+      // Drop the test var entirely; fingerprint flips from test: to env:.
+      delete process.env.LEMONSQUEEZY_TEST_API_KEY;
+      process.env.LEMONSQUEEZY_API_KEY = "prod_key";
+      const k2 = await loadApiKey();
+      assert.equal(k2, "prod_key");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("invalidateApiKeyCache works in test mode", async () => {
+    process.env.LEMONSQUEEZY_TEST_API_KEY = "test_initial";
+    const cap = captureStderr();
+    try {
+      const k1 = await loadApiKey();
+      assert.equal(k1, "test_initial");
+
+      // Rotate the test key value upstream; invalidate -> next call re-reads.
+      process.env.LEMONSQUEEZY_TEST_API_KEY = "test_rotated";
+      invalidateApiKeyCache();
+      const k2 = await loadApiKey();
+      assert.equal(k2, "test_rotated");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("prints the test_mode notice to stderr exactly once per process", async () => {
+    process.env.LEMONSQUEEZY_TEST_API_KEY = "test_key";
+    const cap = captureStderr();
+    try {
+      await loadApiKey();
+      await loadApiKey();
+      invalidateApiKeyCache();
+      await loadApiKey();
+
+      const testModeLines = cap.lines.filter((l) => l.includes('"event":"test_mode"'));
+      assert.equal(testModeLines.length, 1, "test_mode notice must be emitted exactly once");
+      const parsed = JSON.parse((testModeLines[0] ?? "").trim());
+      assert.equal(parsed.event, "test_mode");
+      assert.equal(parsed.message, "Using LEMONSQUEEZY_TEST_API_KEY (test mode)");
+      assert.match(parsed.ts, /^\d{4}-\d{2}-\d{2}T/);
+      assert.ok((testModeLines[0] ?? "").endsWith("\n"));
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("does not print the test_mode notice in prod mode", async () => {
+    process.env.LEMONSQUEEZY_API_KEY = "prod_key";
+    const cap = captureStderr();
+    try {
+      await loadApiKey();
+      await loadApiKey();
+      const testModeLines = cap.lines.filter((l) => l.includes('"event":"test_mode"'));
+      assert.equal(testModeLines.length, 0);
+    } finally {
+      cap.restore();
+    }
   });
 });

@@ -8,6 +8,37 @@ MCP server for the [LemonSqueezy](https://lemonsqueezy.com) API. Manage your sto
 npx @yawlabs/lemonsqueezy-mcp
 ```
 
+Or one-click install via Smithery:
+
+```bash
+npx -y @smithery/cli install @yawlabs/lemonsqueezy-mcp --client claude
+```
+
+Smithery prompts for your env vars (API key, optional guardrails) and writes the config into your client for you.
+
+## What it looks like
+
+Once configured, you can ask your AI assistant store-management questions in plain English and it routes them through the MCP tools:
+
+```
+You:  How much did we make from the "Pro Annual" plan last month?
+Claude: [calls ls_list_subscriptions, ls_get_variant, ls_list_subscription_invoices]
+        Pro Annual brought in $14,280 across 84 active subscriptions in April.
+        Three of those were upgrades from monthly; none churned.
+
+You:  Refund order #LS-1234 in full.
+Claude: [calls ls_get_order to fetch the total, then ls_refund_order with amount = total]
+        Refunded $99.00 against order LS-1234. The customer's card will see the
+        credit in 5-10 business days.
+
+You:  Disable license key abc-123 for the customer who reported abuse.
+Claude: [calls ls_list_license_keys to find the ID, then ls_update_license_key with disabled: true]
+        License key disabled. Their existing activations will fail validation
+        on the next check.
+```
+
+Guardrails (refund cap, rate limit, store allowlist) catch the obvious mistakes before they reach LemonSqueezy. See [Configuration](#configuration) for the env vars that turn them on.
+
 ## Setup
 
 Set your LemonSqueezy API key as an environment variable:
@@ -17,6 +48,17 @@ export LEMONSQUEEZY_API_KEY="your-api-key"
 ```
 
 Get your API key from your [LemonSqueezy dashboard](https://app.lemonsqueezy.com/settings/api).
+
+### Docker
+
+A multi-stage `Dockerfile` is included at the repo root. The runtime image is a single bundled file on `node:20-alpine` running as the non-root `node` user, with no port exposed (stdio transport).
+
+```bash
+docker build -t yawlabs/lemonsqueezy-mcp .
+docker run --rm -i -e LEMONSQUEEZY_API_KEY="your-api-key" yawlabs/lemonsqueezy-mcp
+```
+
+A byte-identical `Containerfile` is also provided for Podman users.
 
 ### Claude Code
 
@@ -174,6 +216,7 @@ All configuration is via environment variables. Only `LEMONSQUEEZY_API_KEY` (or 
 | --- | --- |
 | `LEMONSQUEEZY_API_KEY` | LemonSqueezy API token. |
 | `LEMONSQUEEZY_API_KEY_COMMAND` | Command whose stdout produces the API key. Overrides `LEMONSQUEEZY_API_KEY`. Output is cached for 1 hour. Use this to pull short-lived credentials from a vault (`op read`, `gcloud secrets versions access`, etc.) without writing them to env vars. The cache is keyed by the command string, so changing it mid-process refreshes on the next request; it is also invalidated automatically on a 401/403 from the API, so a key rotated upstream takes effect on the next call without waiting for the TTL. |
+| `LEMONSQUEEZY_TEST_API_KEY` | Optional test-mode key. When set and non-empty, it takes precedence over `LEMONSQUEEZY_API_KEY` (but not over `LEMONSQUEEZY_API_KEY_COMMAND`). On first activation per process, the server prints a one-line JSON `test_mode` notice to stderr so you can confirm test mode is engaged. Use this to point the server at a sandbox/test store without unsetting your production key. |
 | `LEMONSQUEEZY_ALLOWED_STORE_IDS` | Comma-separated allowlist of store IDs. When set: (1) any tool whose input includes a `storeId` rejects calls to a non-allowed store; (2) tools that *accept* a `storeId` filter (e.g. `ls_list_orders`, `ls_list_subscriptions`) require it — calls without one are blocked so a missing filter cannot return data from every store the API key can see. Tools with no `storeId` field at all (e.g. `ls_refund_order`, `ls_cancel_subscription`, `ls_archive_customer`, `ls_delete_webhook`, `ls_delete_discount`, `ls_update_license_key`, `ls_list_stores`) route by their own resource ID and are **not** gated by this allowlist. For those, the only authoritative store boundary is the API key itself — pair this setting with a LemonSqueezy API key scoped to the same store(s), and pair with `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` / `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` for additional defense in depth. |
 | `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` | Rejects `ls_refund_order` and `ls_refund_subscription_invoice` calls above this amount. |
 | `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` | Max destructive tool calls per 60-second rolling window. In-process limit — per MCP server instance, not global; each `npx` cold start resets the window. Counts include `ls_update_license_key` calls that set `disabled: true`, and `ls_update_subscription` calls that pause or switch plan. |
@@ -186,6 +229,14 @@ Each line: `{ts, event, tool?, method?, path?, status, latency_ms, request_id?, 
 ### Error decoration
 
 HTTP errors include the upstream `X-Request-Id` when present, so support tickets to LemonSqueezy can reference the exact call.
+
+## Resources
+
+The server exposes one MCP Resource for clients that prefer structural retrieval over parsing stderr:
+
+| URI | MIME type | Contents |
+| --- | --- | --- |
+| `lemonsqueezy://audit-log` | `application/x-ndjson` | The most recent destructive tool calls and outcomes (rate-limit blocks, refund-cap blocks, exceptions, successes). Bounded ring buffer of the last 1000 entries, most-recent-first, resets on server restart. Secret-shaped input fields are redacted before they reach the buffer. |
 
 ## Operating the server unattended
 
@@ -216,15 +267,36 @@ npm run test:integration  # requires LEMONSQUEEZY_TEST_API_KEY + LEMONSQUEEZY_TE
 
 ## Releasing
 
-Releases are cut locally — there is no CI pipeline. From a clean checkout of `main`:
+Two paths from a clean checkout of `main`. Both produce the same artifact (npm publish with provenance + GitHub release).
+
+### 1. Tag-and-let-CI (preferred)
 
 ```bash
-./release.sh 0.6.0
+# 1. Bump version
+npm version X.Y.Z --no-git-tag-version
+
+# 2. Commit
+git add package.json && git commit -m "vX.Y.Z"
+
+# 3. Annotated tag (lightweight tags are silently skipped by --follow-tags)
+git tag -a vX.Y.Z -m "vX.Y.Z"
+
+# 4. Push commit + tag
+git push origin main --follow-tags
+
+# 5. Confirm the Release workflow fired (not just CI on the bump commit)
+gh run list --limit 2
 ```
 
-The script lints, tests, builds, bumps the version, commits and tags, pushes to `origin`, publishes to npm, and creates a GitHub release. Each step is idempotent — re-running with the same version after a partial failure resumes from where it stopped.
+The tag push triggers `.github/workflows/release.yml`, which runs `release.sh` in CI mode: lint, test, build, npm publish (with `--provenance`) using the org-level `NPM_TOKEN` secret, then GitHub release creation, then a smoke test against the published tarball. No local `npm login` needed.
 
-One-time setup on the release machine:
+### 2. Local end-to-end
+
+```bash
+./release.sh X.Y.Z
+```
+
+Does the same steps 1–7 on the workstation: lint, test, build, bump, commit, annotated tag, push, npm publish, GitHub release, verify. Idempotent — safe to re-run with the same version after a partial failure. Requires one-time setup:
 
 ```bash
 npm login --auth-type=web   # publisher of @yawlabs/lemonsqueezy-mcp

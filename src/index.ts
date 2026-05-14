@@ -2,6 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { pushAuditEntry, readAuditEntries } from "./audit-buffer.js";
 import {
   checkDestructiveRateLimit,
   checkStoreScopedToolInput,
@@ -113,16 +114,20 @@ for (const tool of allTools) {
         // are non-destructive), but redactSecrets() runs unconditionally
         // as defense-in-depth -- if a tool with secret-bearing inputs is
         // ever flipped to destructiveHint:true, the audit log won't leak.
-        logEvent({
-          event: "tool_call",
+        const successEntry = {
+          event: "tool_call" as const,
           tool: tool.name,
-          status: response.ok ? "ok" : "error",
+          status: response.ok ? ("ok" as const) : ("error" as const),
           latency_ms,
           request_id: response.requestId,
           error: response.ok ? undefined : response.error,
           audit: isDestructive ? true : undefined,
           inputs: isDestructive ? redactSecrets(input) : undefined,
-        });
+        };
+        logEvent(successEntry);
+        if (isDestructive) {
+          pushAuditEntry({ ts: new Date().toISOString(), ...successEntry });
+        }
 
         if (!response.ok) {
           return {
@@ -143,15 +148,19 @@ for (const tool of allTools) {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const latency_ms = Date.now() - start;
-        logEvent({
-          event: "tool_call",
+        const errorEntry = {
+          event: "tool_call" as const,
           tool: tool.name,
-          status: err instanceof GuardrailError ? "guardrail_block" : "exception",
+          status: err instanceof GuardrailError ? ("guardrail_block" as const) : ("exception" as const),
           latency_ms,
           error: message,
           audit: isDestructive ? true : undefined,
           inputs: isDestructive ? redactSecrets(input) : undefined,
-        });
+        };
+        logEvent(errorEntry);
+        if (isDestructive) {
+          pushAuditEntry({ ts: new Date().toISOString(), ...errorEntry });
+        }
         return {
           content: [{ type: "text" as const, text: `Error: ${message}` }],
           isError: true,
@@ -160,6 +169,39 @@ for (const tool of allTools) {
     },
   );
 }
+
+// Expose the in-memory destructive-call audit log as a read-only MCP
+// Resource so clients without stderr access can retrieve it structurally.
+// The buffer is filled in the tool wrapper above (after every destructive
+// success/failure log line). The resource is read-only -- there is no
+// matching write side.
+//
+// SDK signature (mcp.d.ts:87):
+//   resource(name, uri, metadata, readCallback): RegisteredResource
+// readCallback returns { contents: [{ uri, mimeType?, text }] }
+//   -- see ReadResourceResultSchema in @modelcontextprotocol/sdk types.
+server.resource(
+  "Recent destructive-call audit log",
+  "lemonsqueezy://audit-log",
+  {
+    description:
+      "The most recent destructive tool calls and their outcomes (rate limit, refund cap, etc.). Bounded ring buffer; resets on server restart.",
+    mimeType: "application/x-ndjson",
+  },
+  async (uri) => {
+    const entries = readAuditEntries();
+    const text = entries.map((e) => JSON.stringify(e)).join("\n");
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/x-ndjson",
+          text,
+        },
+      ],
+    };
+  },
+);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

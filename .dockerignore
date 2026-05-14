@@ -1,0 +1,48 @@
+# Reproducible build hygiene: keep the build context small and free of host
+# state. Anything not listed in the Dockerfile COPY lines is excluded anyway,
+# but excluding here also speeds up the upload to the daemon.
+
+# Dependencies and build artifacts -- the builder stage rebuilds these.
+node_modules
+dist
+
+# Version control and CI metadata.
+.git
+.gitignore
+.github
+
+# Tests and coverage -- runtime image doesn't need them.
+*.test.ts
+**/*.test.ts
+coverage
+.nyc_output
+
+# Editor / IDE.
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Docs and meta -- not needed at build time.
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+SECURITY.md
+SEMVER.md
+LICENSE
+CLAUDE.md
+.claude
+
+# Local env / secrets.
+.env
+.env.*
+*.tgz
+
+# Container/Smithery config -- the build doesn't consume itself.
+Dockerfile
+Containerfile
+.dockerignore
+smithery.yaml
+
+# Release scripts -- not part of the runtime artifact.
+release.sh
