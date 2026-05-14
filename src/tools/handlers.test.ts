@@ -93,13 +93,31 @@ const BASE = "https://api.lemonsqueezy.com/v1";
 
 // ─── Setup / teardown ───
 
+// Save and clear ALL three key-source env vars so tests run in isolation.
+// CI may inject LEMONSQUEEZY_TEST_API_KEY (for integration tests) or
+// LEMONSQUEEZY_API_KEY_COMMAND -- either would take precedence over the
+// in-test "test-key-123" stub via the secret.ts priority chain, breaking
+// assertions that hard-code that string or expect "missing key" behavior.
+const savedKeyEnv = {
+  LEMONSQUEEZY_API_KEY: process.env.LEMONSQUEEZY_API_KEY,
+  LEMONSQUEEZY_TEST_API_KEY: process.env.LEMONSQUEEZY_TEST_API_KEY,
+  LEMONSQUEEZY_API_KEY_COMMAND: process.env.LEMONSQUEEZY_API_KEY_COMMAND,
+};
+
 before(() => {
+  delete process.env.LEMONSQUEEZY_TEST_API_KEY;
+  delete process.env.LEMONSQUEEZY_API_KEY_COMMAND;
   process.env.LEMONSQUEEZY_API_KEY = "test-key-123";
+  _resetApiKeyCacheForTest();
 });
 
 after(() => {
   globalThis.fetch = originalFetch;
-  delete process.env.LEMONSQUEEZY_API_KEY;
+  for (const [k, v] of Object.entries(savedKeyEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  _resetApiKeyCacheForTest();
 });
 
 beforeEach(() => {
@@ -909,17 +927,21 @@ describe("Error handling", () => {
   it("throws when API key is missing", async () => {
     const saved = process.env.LEMONSQUEEZY_API_KEY;
     delete process.env.LEMONSQUEEZY_API_KEY;
+    _resetApiKeyCacheForTest();
     const tool = findTool(customerTools, "ls_get_customer");
     await assert.rejects(() => tool.handler({ customerId: "1" }), /LEMONSQUEEZY_API_KEY/);
     process.env.LEMONSQUEEZY_API_KEY = saved;
+    _resetApiKeyCacheForTest();
   });
 
   it("throws when API key is empty", async () => {
     const saved = process.env.LEMONSQUEEZY_API_KEY;
     process.env.LEMONSQUEEZY_API_KEY = "   ";
+    _resetApiKeyCacheForTest();
     const tool = findTool(customerTools, "ls_get_customer");
     await assert.rejects(() => tool.handler({ customerId: "1" }), /empty/);
     process.env.LEMONSQUEEZY_API_KEY = saved;
+    _resetApiKeyCacheForTest();
   });
 
   it("parses JSON:API error detail from 4xx response", async () => {
