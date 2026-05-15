@@ -270,7 +270,7 @@ The server exposes one MCP Resource for clients that prefer structural retrieval
 
 | URI | MIME type | Contents |
 | --- | --- | --- |
-| `lemonsqueezy://audit-log` | `application/x-ndjson` | The most recent destructive tool calls and outcomes (rate-limit blocks, refund-cap blocks, exceptions, successes). Bounded ring buffer of the last 1000 entries, most-recent-first, resets on server restart. Secret-shaped input fields are redacted before they reach the buffer. |
+| `lemonsqueezy://audit-log` | `application/x-ndjson` | The most recent destructive tool calls and outcomes (rate-limit blocks, refund-cap blocks, exceptions, successes). Bounded ring buffer of the last 1000 entries, most-recent-first, resets on server restart. Redaction runs on the input payload before it reaches the buffer: any object key whose name matches a credential / PII pattern (`secret`, `password`, `token`, `api_key`, `bearer`, `authorization`, `signing_secret`, `private_key`, `pin`, `ssn`, `social_security_number`, `credit_card`, `card_number`, `cvv`, `cvc` — case-insensitive, whole-word) AND any string value matching the JWT bearer-token shape (`eyJ…`-prefixed, three base64url segments) is replaced with `[REDACTED]`. Ordinary identifiers (`licenseKey`, `instanceId`, `storeId`, `orderId`, `webhookId`) and UUID-shaped values are preserved. |
 
 ## Operating the server unattended
 
@@ -298,6 +298,13 @@ npm install
 npm run lint
 npm test                  # full unit + handler suite
 npm run test:integration  # requires LEMONSQUEEZY_TEST_API_KEY + LEMONSQUEEZY_TEST_STORE_ID
+```
+
+`Containerfile` is generated from `Dockerfile`. After editing `Dockerfile`:
+
+```bash
+npm run gen:containerfile    # regenerate Containerfile
+npm run check:containerfile  # CI runs this; non-zero exit means the two have drifted
 ```
 
 ## Releasing

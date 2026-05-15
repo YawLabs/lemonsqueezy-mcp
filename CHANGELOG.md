@@ -4,6 +4,11 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+### Docs
+
+- README Resources section now spells out the full redaction policy (every secret-named key the regex matches, plus JWT-shaped string values), so an operator who sees a `[REDACTED]` under an innocuous key knows where it came from.
+- README Development section documents `npm run gen:containerfile` / `npm run check:containerfile` so a contributor editing `Dockerfile` knows to regenerate.
+
 ## [0.9.1] — 2026-05-15
 
 ### Docs
