@@ -2,14 +2,14 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
-## [Unreleased]
+## [0.10.0] -- 2026-05-15
 
 ### Added
 
 - **Webhook-sink bridge tools** for the optional [@yawlabs/lemonsqueezy-webhook-sink](https://github.com/YawLabs/lemonsqueezy-webhook-sink) process. Three new tools give an agent a unified read surface for "what webhooks have actually fired" alongside the existing management-API reads:
-  - `ls_sink_events_list` — list received webhook events with optional `since` / `type` / `limit` filters
-  - `ls_sink_event_mark_processed` — idempotent ack from your consumer
-  - `ls_sink_stats` — total, unprocessed, last-received timestamp
+  - `ls_sink_events_list` -- list received webhook events with optional `since` / `type` / `limit` filters
+  - `ls_sink_event_mark_processed` -- idempotent ack from your consumer
+  - `ls_sink_stats` -- total, unprocessed, last-received timestamp
 - `LEMONSQUEEZY_SINK_URL` and `LEMONSQUEEZY_SINK_ADMIN_TOKEN` env vars to configure the bridge. Tools are always registered for `tools/list` discovery; missing env vars surface at call time as a structured "not configured" error (with a pointer to the sink repo), not a registration-time failure. 10s fetch timeout via `AbortSignal.timeout()`; auth failures (401), admin-disabled (404), and transport errors each get a tailored diagnostic.
 
 ## [0.9.3] — 2026-05-15
