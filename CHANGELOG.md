@@ -4,6 +4,8 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-05-15
+
 ### Docs
 
 - README "Features" list now mentions authority-class disable, per-class rate limits, and the audit-log MCP Resource — previously omitted under the umbrella "Guardrails" bullet despite being documented in detail later in the file.
@@ -254,7 +256,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.7.1...v0.8.1
 [0.7.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.7.0...v0.7.1
