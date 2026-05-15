@@ -4,10 +4,15 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+### Added
+
+- `.github/workflows/release.yml` now publishes to the [Official MCP Registry](https://registry.modelcontextprotocol.io) after the post-publish smoke test passes. Authentication is via GitHub OIDC — the `id-token: write` permission already enabled for npm provenance also satisfies the registry's auth; no `MCP_*` secret is required. The namespace `io.github.YawLabs/*` is authorized purely from the OIDC `repository_owner` claim, so anyone outside the YawLabs GitHub org cannot publish under it. A `jq` step overwrites `server.json`'s `version` (and `packages[0].version`) from the pushed tag, so a forgotten manual bump on `server.json` no longer publishes a stale version to the registry. Downstream registries (Glama, PulseMCP, mcpservers.org) that auto-source from the official registry now pick up each `@yawlabs/lemonsqueezy-mcp` release without a manual mcp-publisher run.
+
 ### Docs
 
 - README Resources section now spells out the full redaction policy (every secret-named key the regex matches, plus JWT-shaped string values), so an operator who sees a `[REDACTED]` under an innocuous key knows where it came from.
 - README Development section documents `npm run gen:containerfile` / `npm run check:containerfile` so a contributor editing `Dockerfile` knows to regenerate.
+- README Releasing section notes that the local `./release.sh` path does not publish to the Official MCP Registry (CI-only) and gives the manual `mcp-publisher` commands as the fallback when a release is cut without CI.
 
 ## [0.9.1] — 2026-05-15
 

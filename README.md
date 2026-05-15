@@ -330,7 +330,7 @@ git push origin main --follow-tags
 gh run list --limit 2
 ```
 
-The tag push triggers `.github/workflows/release.yml`, which runs `release.sh` in CI mode: lint, test, build, npm publish (with `--provenance`) using the org-level `NPM_TOKEN` secret, then GitHub release creation, then a smoke test against the published tarball. No local `npm login` needed.
+The tag push triggers `.github/workflows/release.yml`, which runs `release.sh` in CI mode: lint, test, build, npm publish (with `--provenance`) using the org-level `NPM_TOKEN` secret, then GitHub release creation, then a smoke test against the published tarball, then a publish to the [Official MCP Registry](https://registry.modelcontextprotocol.io) via GitHub OIDC (no `MCP_*` secret needed; the namespace `io.github.YawLabs/*` is authorized purely from the OIDC `repository_owner` claim). No local `npm login` needed.
 
 ### 2. Local end-to-end
 
@@ -344,6 +344,8 @@ Does the same steps 1–7 on the workstation: lint, test, build, bump, commit, a
 npm login --auth-type=web   # publisher of @yawlabs/lemonsqueezy-mcp
 gh auth login               # GitHub CLI for the release-creation step
 ```
+
+The local path does **not** publish to the Official MCP Registry — that step lives only in CI and depends on a GitHub Actions OIDC token. To push a locally-released version to the registry, install [`mcp-publisher`](https://github.com/modelcontextprotocol/registry/releases), run `mcp-publisher login github` (interactive OAuth), then `mcp-publisher publish` from the repo root.
 
 ## License
 
