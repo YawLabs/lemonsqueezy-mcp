@@ -4,6 +4,7 @@ import { apiDelete, apiPatch, encodePath, getHandler, listHandler, lsIdSchema } 
 export const subscriptionTools = [
   {
     name: "ls_get_subscription",
+    authorityClass: "read" as const,
     description:
       "Get a specific subscription by ID, including status, billing interval, renewal date, and customer info.",
     annotations: {
@@ -27,6 +28,7 @@ export const subscriptionTools = [
   },
   {
     name: "ls_list_subscriptions",
+    authorityClass: "read" as const,
     description:
       "List all subscriptions, optionally filtered by store, order, product, variant, or status. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
@@ -69,6 +71,7 @@ export const subscriptionTools = [
   },
   {
     name: "ls_update_subscription",
+    authorityClass: "recurring" as const,
     description:
       "Update a subscription. Can change the variant (plan switch), pause/unpause, set billing anchor, or update invoice details. Use ls_cancel_subscription for cancellation.",
     annotations: {
@@ -146,6 +149,7 @@ export const subscriptionTools = [
   },
   {
     name: "ls_cancel_subscription",
+    authorityClass: "recurring" as const,
     description:
       "Cancel a subscription. The subscription remains active until the end of the current billing period, then expires.",
     annotations: {

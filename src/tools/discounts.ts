@@ -4,6 +4,7 @@ import { apiDelete, apiPost, encodePath, getHandler, listHandler, lsIdSchema } f
 export const discountTools = [
   {
     name: "ls_get_discount",
+    authorityClass: "read" as const,
     description: "Get a specific discount by ID, including code, amount, type, and usage limits.",
     annotations: {
       title: "Get discount",
@@ -24,6 +25,7 @@ export const discountTools = [
   },
   {
     name: "ls_list_discounts",
+    authorityClass: "read" as const,
     description:
       "List all discounts, optionally filtered by store. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
@@ -47,6 +49,7 @@ export const discountTools = [
   },
   {
     name: "ls_create_discount",
+    authorityClass: "mutate" as const,
     description:
       "Create a new discount code. Supports percentage or fixed amount discounts with optional duration and usage limits.",
     annotations: {
@@ -145,6 +148,7 @@ export const discountTools = [
   },
   {
     name: "ls_delete_discount",
+    authorityClass: "mutate" as const,
     description: "Permanently delete a discount. This is irreversible.",
     annotations: {
       title: "Delete discount",

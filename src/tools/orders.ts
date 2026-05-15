@@ -5,6 +5,7 @@ import { checkRefundAmount } from "../guardrails.js";
 export const orderTools = [
   {
     name: "ls_get_order",
+    authorityClass: "read" as const,
     description: "Get a specific order by ID, including status, total, currency, customer info, and payment details.",
     annotations: {
       title: "Get order",
@@ -27,6 +28,7 @@ export const orderTools = [
   },
   {
     name: "ls_list_orders",
+    authorityClass: "read" as const,
     description:
       "List all orders, optionally filtered by store or user email. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
@@ -53,6 +55,7 @@ export const orderTools = [
   },
   {
     name: "ls_generate_order_invoice",
+    authorityClass: "mutate" as const,
     description: "Generate a PDF invoice for an order. Returns a download URL for the invoice.",
     annotations: {
       title: "Generate order invoice",
@@ -98,6 +101,7 @@ export const orderTools = [
   },
   {
     name: "ls_refund_order",
+    authorityClass: "money" as const,
     description:
       "Issue a refund for an order. This is irreversible — the refund amount is in cents (e.g. 1000 = $10.00).",
     annotations: {

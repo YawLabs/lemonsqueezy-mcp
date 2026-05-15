@@ -4,6 +4,7 @@ import { apiGet } from "../api.js";
 export const userTools = [
   {
     name: "ls_get_user",
+    authorityClass: "read" as const,
     description: "Get the authenticated user's information including name, email, and avatar.",
     annotations: {
       title: "Get authenticated user",

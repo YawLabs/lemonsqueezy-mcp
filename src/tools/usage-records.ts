@@ -4,6 +4,7 @@ import { apiPost, getHandler, listHandler, lsIdSchema } from "../api.js";
 export const usageRecordTools = [
   {
     name: "ls_get_usage_record",
+    authorityClass: "read" as const,
     description: "Get a specific usage record by ID, including quantity and action type.",
     annotations: {
       title: "Get usage record",
@@ -24,6 +25,7 @@ export const usageRecordTools = [
   },
   {
     name: "ls_list_usage_records",
+    authorityClass: "read" as const,
     description:
       "List all usage records, optionally filtered by subscription item. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool requires at least one of: subscriptionItemId. Even with that set, pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.",
     annotations: {
@@ -48,6 +50,7 @@ export const usageRecordTools = [
   },
   {
     name: "ls_create_usage_record",
+    authorityClass: "mutate" as const,
     description:
       "Report usage for a metered subscription item. Use 'increment' action to add to the current usage, or 'set' to replace it.",
     annotations: {

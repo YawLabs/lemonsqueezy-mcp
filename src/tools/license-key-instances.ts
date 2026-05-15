@@ -4,6 +4,7 @@ import { getHandler, listHandler, lsIdSchema } from "../api.js";
 export const licenseKeyInstanceTools = [
   {
     name: "ls_get_license_key_instance",
+    authorityClass: "read" as const,
     description: "Get a specific license key instance (activation) by ID, including instance name and creation date.",
     annotations: {
       title: "Get license key instance",
@@ -24,6 +25,7 @@ export const licenseKeyInstanceTools = [
   },
   {
     name: "ls_list_license_key_instances",
+    authorityClass: "read" as const,
     description:
       "List all license key instances (activations), optionally filtered by license key. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool requires at least one of: licenseKeyId. Even with that set, pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.",
     annotations: {

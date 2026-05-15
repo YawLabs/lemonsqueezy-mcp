@@ -4,6 +4,7 @@ import { getHandler, listHandler, lsIdSchema } from "../api.js";
 export const priceTools = [
   {
     name: "ls_get_price",
+    authorityClass: "read" as const,
     description: "Get a specific price by ID, including amount, currency, and billing interval.",
     annotations: {
       title: "Get price",
@@ -24,6 +25,7 @@ export const priceTools = [
   },
   {
     name: "ls_list_prices",
+    authorityClass: "read" as const,
     description:
       "List all prices, optionally filtered by variant. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool requires at least one of: variantId. Even with that set, pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.",
     annotations: {

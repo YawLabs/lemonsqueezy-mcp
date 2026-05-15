@@ -27,14 +27,46 @@ export class GuardrailError extends Error {
   }
 }
 
+// Each tool declares an authority class describing the kind of authority it
+// exercises -- not just "does it write" but what business-domain authority a
+// caller needs to invoke it. The class is what the operator gates on, separate
+// from the binary destructiveHint flag.
+//
+//   read     -- safe reads (list/get) that don't return customer PII as their
+//               primary payload.
+//   pii      -- reads or writes of customer records. ls_get_order also returns
+//               customer fields incidentally, but its primary payload is the
+//               order; the pii class is reserved for tools whose primary
+//               purpose IS the customer record.
+//   mutate   -- safe mutations: checkout creation, discount management,
+//               invoice generation, usage records. Non-money, non-recurring.
+//   money    -- money movement (refunds). Irreversible at the payment layer.
+//   recurring -- subscription state (cancel, update billing item). Affects
+//               recurring revenue.
+//   key      -- license-key admin (activate, deactivate, disable, change
+//               activation limit). Affects customer access surface.
+//   webhook  -- webhook config (create, update, delete). Affects the security
+//               surface other systems trust.
+export const AUTHORITY_CLASSES = ["read", "pii", "mutate", "money", "recurring", "key", "webhook"] as const;
+export type AuthorityClass = (typeof AUTHORITY_CLASSES)[number];
+
+function isAuthorityClass(s: string): s is AuthorityClass {
+  return (AUTHORITY_CLASSES as readonly string[]).includes(s);
+}
+
+type RateLimitSpec = { limit: number; windowMs: number };
+
 type Options = {
   allowedStoreIds: Set<string> | null;
   maxRefundAmountCents: number | null;
   rateLimitPerMinute: number | null;
+  disabledClasses: Set<AuthorityClass> | null;
+  classRateLimits: Map<AuthorityClass, RateLimitSpec> | null;
 };
 
 let cachedOptions: Options | null = null;
 let destructiveTimestamps: number[] = [];
+let classTimestamps: Map<AuthorityClass, number[]> = new Map();
 
 function readNumber(name: string, raw: string | undefined): number | null {
   if (raw === undefined || raw.trim() === "") return null;
@@ -43,6 +75,74 @@ function readNumber(name: string, raw: string | undefined): number | null {
     throw new Error(`${name} must be a non-negative number (got ${JSON.stringify(raw)})`);
   }
   return n;
+}
+
+function parseDisabledClasses(raw: string | undefined): Set<AuthorityClass> | null {
+  if (!raw || raw.trim() === "") return null;
+  const out = new Set<AuthorityClass>();
+  for (const part of raw.split(",")) {
+    const cls = part.trim();
+    if (!cls) continue;
+    if (!isAuthorityClass(cls)) {
+      throw new Error(
+        `LEMONSQUEEZY_DISABLE_CLASSES contains unknown class ${JSON.stringify(cls)} (expected one of: ${AUTHORITY_CLASSES.join(", ")})`,
+      );
+    }
+    out.add(cls);
+  }
+  return out.size > 0 ? out : null;
+}
+
+// Per-class rate-limit DSL: comma-separated "class:N" or "class:N/m" or
+// "class:N/h" entries. Bare numbers default to per-minute, matching the
+// existing LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT semantics. Examples:
+//
+//   money:2/h            -- 2 refunds per hour
+//   money:2/h,recurring:5/h,key:10/m
+//   pii:30                -- 30 customer-data calls per minute
+function parseClassRateLimits(raw: string | undefined): Map<AuthorityClass, RateLimitSpec> | null {
+  if (!raw || raw.trim() === "") return null;
+  const out = new Map<AuthorityClass, RateLimitSpec>();
+  for (const part of raw.split(",")) {
+    const segment = part.trim();
+    if (!segment) continue;
+    const colon = segment.indexOf(":");
+    if (colon < 0) {
+      throw new Error(
+        `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS entry missing colon: ${JSON.stringify(segment)} (expected class:N or class:N/h)`,
+      );
+    }
+    const cls = segment.slice(0, colon).trim();
+    if (!isAuthorityClass(cls)) {
+      throw new Error(
+        `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS contains unknown class ${JSON.stringify(cls)} (expected one of: ${AUTHORITY_CLASSES.join(", ")})`,
+      );
+    }
+    const specRaw = segment.slice(colon + 1).trim();
+    const slash = specRaw.indexOf("/");
+    const numPart = slash >= 0 ? specRaw.slice(0, slash).trim() : specRaw;
+    const unitPart =
+      slash >= 0
+        ? specRaw
+            .slice(slash + 1)
+            .trim()
+            .toLowerCase()
+        : "m";
+    const n = Number(numPart);
+    if (!Number.isFinite(n) || n < 0 || numPart === "") {
+      throw new Error(`LEMONSQUEEZY_RATE_LIMIT_PER_CLASS entry has invalid number: ${JSON.stringify(segment)}`);
+    }
+    let windowMs: number;
+    if (unitPart === "m") windowMs = 60_000;
+    else if (unitPart === "h") windowMs = 3_600_000;
+    else {
+      throw new Error(
+        `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS entry has invalid unit (expected m or h): ${JSON.stringify(segment)}`,
+      );
+    }
+    out.set(cls, { limit: n, windowMs });
+  }
+  return out.size > 0 ? out : null;
 }
 
 function loadOptions(): Options {
@@ -66,6 +166,8 @@ function loadOptions(): Options {
       "LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT",
       process.env.LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT,
     ),
+    disabledClasses: parseDisabledClasses(process.env.LEMONSQUEEZY_DISABLE_CLASSES),
+    classRateLimits: parseClassRateLimits(process.env.LEMONSQUEEZY_RATE_LIMIT_PER_CLASS),
   };
   return cachedOptions;
 }
@@ -171,7 +273,34 @@ export function isDestructiveCall(tool: ToolForDestructiveCheck, input: Record<s
   return tool.annotations?.destructiveHint === true;
 }
 
+export function checkClassAllowed(cls: AuthorityClass): void {
+  const o = loadOptions();
+  if (!o.disabledClasses) return;
+  if (o.disabledClasses.has(cls)) {
+    throw new GuardrailError(`Tool authority class ${JSON.stringify(cls)} is disabled by LEMONSQUEEZY_DISABLE_CLASSES`);
+  }
+}
+
+export function checkClassRateLimit(cls: AuthorityClass, now: number = Date.now()): void {
+  const o = loadOptions();
+  if (!o.classRateLimits) return;
+  const spec = o.classRateLimits.get(cls);
+  if (!spec) return;
+  const cutoff = now - spec.windowMs;
+  const list = (classTimestamps.get(cls) ?? []).filter((t) => t > cutoff);
+  if (list.length >= spec.limit) {
+    const unit = spec.windowMs === 60_000 ? "min" : spec.windowMs === 3_600_000 ? "hour" : `${spec.windowMs}ms`;
+    classTimestamps.set(cls, list);
+    throw new GuardrailError(
+      `Class ${JSON.stringify(cls)} rate limit exceeded (${spec.limit}/${unit}). Wait and retry.`,
+    );
+  }
+  list.push(now);
+  classTimestamps.set(cls, list);
+}
+
 export function _resetGuardrailsForTest(): void {
   cachedOptions = null;
   destructiveTimestamps = [];
+  classTimestamps = new Map();
 }

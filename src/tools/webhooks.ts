@@ -4,6 +4,7 @@ import { apiDelete, apiPatch, apiPost, encodePath, getHandler, listHandler, lsId
 export const webhookTools = [
   {
     name: "ls_get_webhook",
+    authorityClass: "read" as const,
     description: "Get a specific webhook by ID, including URL, events, and last sent timestamp.",
     annotations: {
       title: "Get webhook",
@@ -20,6 +21,7 @@ export const webhookTools = [
   },
   {
     name: "ls_list_webhooks",
+    authorityClass: "read" as const,
     description:
       "List all webhooks, optionally filtered by store. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
@@ -39,6 +41,7 @@ export const webhookTools = [
   },
   {
     name: "ls_create_webhook",
+    authorityClass: "webhook" as const,
     description:
       "Create a new webhook to receive event notifications. The signing secret is returned only once — save it immediately.",
     annotations: {
@@ -76,6 +79,7 @@ export const webhookTools = [
   },
   {
     name: "ls_update_webhook",
+    authorityClass: "webhook" as const,
     description: "Update an existing webhook's URL, events, or secret.",
     annotations: {
       title: "Update webhook",
@@ -107,6 +111,7 @@ export const webhookTools = [
   },
   {
     name: "ls_delete_webhook",
+    authorityClass: "webhook" as const,
     description: "Permanently delete a webhook. This is irreversible.",
     annotations: {
       title: "Delete webhook",

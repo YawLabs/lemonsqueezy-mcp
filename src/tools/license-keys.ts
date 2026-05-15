@@ -4,6 +4,7 @@ import { apiPatch, encodePath, getHandler, listHandler, lsIdSchema } from "../ap
 export const licenseKeyTools = [
   {
     name: "ls_get_license_key",
+    authorityClass: "read" as const,
     description: "Get a specific license key by ID, including key value, status, activation limit, and expiry date.",
     annotations: {
       title: "Get license key",
@@ -26,6 +27,7 @@ export const licenseKeyTools = [
   },
   {
     name: "ls_list_license_keys",
+    authorityClass: "read" as const,
     description:
       "List all license keys, optionally filtered by store, order, or product. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
@@ -59,6 +61,7 @@ export const licenseKeyTools = [
   },
   {
     name: "ls_update_license_key",
+    authorityClass: "key" as const,
     description:
       "Update a license key's activation limit, expiry date, or disabled status. Setting `disabled: true` revokes customer access and is treated as destructive (rate-limited and audited).",
     annotations: {

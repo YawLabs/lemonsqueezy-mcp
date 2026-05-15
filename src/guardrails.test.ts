@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   _resetGuardrailsForTest,
+  checkClassAllowed,
+  checkClassRateLimit,
   checkDestructiveRateLimit,
   checkRefundAmount,
   checkStoreAllowed,
@@ -15,6 +17,8 @@ const ENV_KEYS = [
   "LEMONSQUEEZY_ALLOWED_STORE_IDS",
   "LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS",
   "LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT",
+  "LEMONSQUEEZY_DISABLE_CLASSES",
+  "LEMONSQUEEZY_RATE_LIMIT_PER_CLASS",
 ] as const;
 
 function withEnv(vars: Partial<Record<(typeof ENV_KEYS)[number], string>>, fn: () => void) {
@@ -299,6 +303,160 @@ describe("checkStoreScopedToolInput", () => {
         assert.doesNotThrow(() => checkStoreScopedToolInput(tool, { x: 0 }));
       });
     });
+  });
+});
+
+describe("checkClassAllowed", () => {
+  beforeEach(() => _resetGuardrailsForTest());
+  afterEach(() => _resetGuardrailsForTest());
+
+  it("no-op when env unset", () => {
+    withEnv({}, () => {
+      assert.doesNotThrow(() => checkClassAllowed("money"));
+      assert.doesNotThrow(() => checkClassAllowed("read"));
+    });
+  });
+
+  it("rejects a single disabled class", () => {
+    withEnv({ LEMONSQUEEZY_DISABLE_CLASSES: "money" }, () => {
+      assert.throws(() => checkClassAllowed("money"), GuardrailError);
+      assert.doesNotThrow(() => checkClassAllowed("recurring"));
+    });
+  });
+
+  it("rejects multiple disabled classes", () => {
+    withEnv({ LEMONSQUEEZY_DISABLE_CLASSES: "money,recurring,pii" }, () => {
+      assert.throws(() => checkClassAllowed("money"), GuardrailError);
+      assert.throws(() => checkClassAllowed("recurring"), GuardrailError);
+      assert.throws(() => checkClassAllowed("pii"), GuardrailError);
+      assert.doesNotThrow(() => checkClassAllowed("read"));
+      assert.doesNotThrow(() => checkClassAllowed("webhook"));
+    });
+  });
+
+  it("trims whitespace in list", () => {
+    withEnv({ LEMONSQUEEZY_DISABLE_CLASSES: " money , recurring " }, () => {
+      assert.throws(() => checkClassAllowed("money"), GuardrailError);
+      assert.throws(() => checkClassAllowed("recurring"), GuardrailError);
+    });
+  });
+
+  it("no-op when env is empty string", () => {
+    withEnv({ LEMONSQUEEZY_DISABLE_CLASSES: "" }, () => {
+      assert.doesNotThrow(() => checkClassAllowed("money"));
+    });
+  });
+
+  it("throws at config load on unknown class", () => {
+    withEnv({ LEMONSQUEEZY_DISABLE_CLASSES: "money,wat" }, () => {
+      assert.throws(() => checkClassAllowed("money"), /unknown class/);
+    });
+  });
+});
+
+describe("checkClassRateLimit", () => {
+  beforeEach(() => _resetGuardrailsForTest());
+  afterEach(() => _resetGuardrailsForTest());
+
+  it("no-op when env unset", () => {
+    withEnv({}, () => {
+      for (let i = 0; i < 100; i++) checkClassRateLimit("money");
+    });
+  });
+
+  it("enforces per-class limit per minute (bare number = minutes)", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money:2" }, () => {
+      const t = 1_000_000;
+      checkClassRateLimit("money", t);
+      checkClassRateLimit("money", t + 1);
+      assert.throws(() => checkClassRateLimit("money", t + 2), GuardrailError);
+    });
+  });
+
+  it("supports per-minute units explicitly", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money:2/m" }, () => {
+      const t = 1_000_000;
+      checkClassRateLimit("money", t);
+      checkClassRateLimit("money", t + 1);
+      assert.throws(() => checkClassRateLimit("money", t + 2), GuardrailError);
+      // After 60s the window slides
+      assert.doesNotThrow(() => checkClassRateLimit("money", t + 61_000));
+    });
+  });
+
+  it("supports per-hour units", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money:2/h" }, () => {
+      const t = 1_000_000;
+      checkClassRateLimit("money", t);
+      checkClassRateLimit("money", t + 1);
+      assert.throws(() => checkClassRateLimit("money", t + 2), GuardrailError);
+      // 30 minutes later still over limit
+      assert.throws(() => checkClassRateLimit("money", t + 30 * 60_000), GuardrailError);
+      // After 1 hour the oldest entry slides
+      assert.doesNotThrow(() => checkClassRateLimit("money", t + 60 * 60_000 + 1));
+    });
+  });
+
+  it("each class tracks its own window independently", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money:1/m,recurring:1/m" }, () => {
+      const t = 1_000_000;
+      checkClassRateLimit("money", t);
+      // money is now at its limit
+      assert.throws(() => checkClassRateLimit("money", t + 1), GuardrailError);
+      // recurring is still fresh
+      assert.doesNotThrow(() => checkClassRateLimit("recurring", t + 1));
+      assert.throws(() => checkClassRateLimit("recurring", t + 2), GuardrailError);
+    });
+  });
+
+  it("no-op for classes not listed in the env var", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money:1/m" }, () => {
+      for (let i = 0; i < 100; i++) checkClassRateLimit("read");
+    });
+  });
+
+  it("throws on missing colon", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money" }, () => {
+      assert.throws(() => checkClassRateLimit("money"), /missing colon/);
+    });
+  });
+
+  it("throws on unknown class", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "wat:5/m" }, () => {
+      assert.throws(() => checkClassRateLimit("money"), /unknown class/);
+    });
+  });
+
+  it("throws on invalid number", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money:abc/m" }, () => {
+      assert.throws(() => checkClassRateLimit("money"), /invalid number/);
+    });
+  });
+
+  it("throws on invalid unit", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money:5/d" }, () => {
+      assert.throws(() => checkClassRateLimit("money"), /invalid unit/);
+    });
+  });
+
+  it("class limit and destructive limit compose (both must pass)", () => {
+    withEnv(
+      {
+        LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money:5/m",
+        LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT: "2",
+      },
+      () => {
+        const t = 1_000_000;
+        // class limit allows 5, destructive limit allows 2 -- destructive wins
+        checkClassRateLimit("money", t);
+        checkDestructiveRateLimit(t);
+        checkClassRateLimit("money", t + 1);
+        checkDestructiveRateLimit(t + 1);
+        // class still has room (2 of 5 used) but destructive is exhausted
+        checkClassRateLimit("money", t + 2);
+        assert.throws(() => checkDestructiveRateLimit(t + 2), GuardrailError);
+      },
+    );
   });
 });
 

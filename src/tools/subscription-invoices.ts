@@ -5,6 +5,7 @@ import { checkRefundAmount } from "../guardrails.js";
 export const subscriptionInvoiceTools = [
   {
     name: "ls_get_subscription_invoice",
+    authorityClass: "read" as const,
     description:
       "Get a specific subscription invoice by ID, including status, total, billing reason, and payment details.",
     annotations: {
@@ -26,6 +27,7 @@ export const subscriptionInvoiceTools = [
   },
   {
     name: "ls_list_subscription_invoices",
+    authorityClass: "read" as const,
     description:
       "List all subscription invoices, optionally filtered by store, subscription, or status. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
@@ -57,6 +59,7 @@ export const subscriptionInvoiceTools = [
   },
   {
     name: "ls_generate_subscription_invoice",
+    authorityClass: "mutate" as const,
     description: "Generate a PDF invoice for a subscription invoice. Returns a download URL.",
     annotations: {
       title: "Generate subscription invoice",
@@ -104,6 +107,7 @@ export const subscriptionInvoiceTools = [
   },
   {
     name: "ls_refund_subscription_invoice",
+    authorityClass: "money" as const,
     description:
       "Issue a refund for a subscription invoice. This is irreversible — the refund amount is in cents (e.g. 1000 = $10.00).",
     annotations: {

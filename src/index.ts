@@ -4,6 +4,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { pushAuditEntry, readAuditEntries } from "./audit-buffer.js";
 import {
+  checkClassAllowed,
+  checkClassRateLimit,
   checkDestructiveRateLimit,
   checkStoreScopedToolInput,
   GuardrailError,
@@ -102,6 +104,13 @@ for (const tool of allTools) {
       const isDestructive = isDestructiveCall(tool, input);
       const start = Date.now();
       try {
+        // Authority-class gates run first -- if the operator has disabled the
+        // class or set a per-class rate limit, we want to reject before
+        // touching the destructive timestamp ring or the storeId allowlist.
+        // checkClassAllowed throws synchronously; checkClassRateLimit may also
+        // throw. Both are recorded as guardrail_block in the catch below.
+        checkClassAllowed(tool.authorityClass);
+        checkClassRateLimit(tool.authorityClass);
         if (isDestructive) checkDestructiveRateLimit();
         checkStoreScopedToolInput(tool, input);
 

@@ -4,6 +4,7 @@ import { getHandler, listHandler, lsIdSchema } from "../api.js";
 export const productTools = [
   {
     name: "ls_get_product",
+    authorityClass: "read" as const,
     description: "Get a specific product by ID, including name, description, price, and status.",
     annotations: {
       title: "Get product",
@@ -24,6 +25,7 @@ export const productTools = [
   },
   {
     name: "ls_list_products",
+    authorityClass: "read" as const,
     description:
       "List all products, optionally filtered by store. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {

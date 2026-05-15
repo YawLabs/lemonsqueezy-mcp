@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { AUTHORITY_CLASSES } from "../guardrails.js";
 import { affiliateTools } from "./affiliates.js";
 import { checkoutTools } from "./checkouts.js";
 import { customerTools } from "./customers.js";
@@ -90,6 +91,15 @@ describe("Tool definitions", () => {
         assert.equal(typeof tool.annotations.destructiveHint, "boolean", `Tool ${tool.name} missing destructiveHint`);
         assert.equal(typeof tool.annotations.idempotentHint, "boolean", `Tool ${tool.name} missing idempotentHint`);
         assert.equal(typeof tool.annotations.openWorldHint, "boolean", `Tool ${tool.name} missing openWorldHint`);
+      });
+
+      it("should declare a valid authorityClass", () => {
+        const cls = (tool as { authorityClass?: string }).authorityClass;
+        assert.ok(cls, `Tool ${tool.name} is missing authorityClass`);
+        assert.ok(
+          (AUTHORITY_CLASSES as readonly string[]).includes(cls as string),
+          `Tool ${tool.name} has invalid authorityClass ${JSON.stringify(cls)} (expected one of: ${AUTHORITY_CLASSES.join(", ")})`,
+        );
       });
     });
   }

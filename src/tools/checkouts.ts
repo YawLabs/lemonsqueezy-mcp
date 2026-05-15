@@ -4,6 +4,7 @@ import { apiPost, getHandler, listHandler, lsIdSchema } from "../api.js";
 export const checkoutTools = [
   {
     name: "ls_get_checkout",
+    authorityClass: "read" as const,
     description: "Get a specific checkout by ID, including URL, expiry, and custom data.",
     annotations: {
       title: "Get checkout",
@@ -24,6 +25,7 @@ export const checkoutTools = [
   },
   {
     name: "ls_list_checkouts",
+    authorityClass: "read" as const,
     description:
       "List all checkouts, optionally filtered by store or variant. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
@@ -48,6 +50,7 @@ export const checkoutTools = [
   },
   {
     name: "ls_create_checkout",
+    authorityClass: "mutate" as const,
     description:
       "Create a new checkout URL for a product variant. Returns a URL where the customer can complete their purchase. Supports custom pricing, prefilled customer data, and checkout customization.",
     annotations: {

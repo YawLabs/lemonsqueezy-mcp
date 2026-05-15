@@ -4,6 +4,7 @@ import { getHandler, listHandler, lsIdSchema } from "../api.js";
 export const storeTools = [
   {
     name: "ls_get_store",
+    authorityClass: "read" as const,
     description: "Get a specific store by ID, including name, slug, currency, and sales statistics.",
     annotations: {
       title: "Get store",
@@ -26,6 +27,7 @@ export const storeTools = [
   },
   {
     name: "ls_list_stores",
+    authorityClass: "read" as const,
     description:
       "List all stores for the authenticated user. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {

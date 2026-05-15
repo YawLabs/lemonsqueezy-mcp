@@ -4,6 +4,7 @@ import { apiPatch, apiPost, encodePath, getHandler, listHandler, lsIdSchema } fr
 export const customerTools = [
   {
     name: "ls_get_customer",
+    authorityClass: "pii" as const,
     description:
       "Get a specific customer by ID, including name, email, city, country, MRR, total revenue, and customer portal URL.",
     annotations: {
@@ -25,6 +26,7 @@ export const customerTools = [
   },
   {
     name: "ls_list_customers",
+    authorityClass: "pii" as const,
     description:
       "List all customers, optionally filtered by store or email. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
     annotations: {
@@ -49,6 +51,7 @@ export const customerTools = [
   },
   {
     name: "ls_create_customer",
+    authorityClass: "pii" as const,
     description: "Create a new customer in a store.",
     annotations: {
       title: "Create customer",
@@ -94,6 +97,7 @@ export const customerTools = [
   },
   {
     name: "ls_update_customer",
+    authorityClass: "pii" as const,
     description:
       "Update an existing customer's name, email, city, region, country, or status. The only supported status value is 'archived' — use ls_archive_customer for the dedicated, audit-tagged path.",
     annotations: {
@@ -152,6 +156,7 @@ export const customerTools = [
   },
   {
     name: "ls_archive_customer",
+    authorityClass: "pii" as const,
     description:
       "Archive a customer. Sets their status to 'archived'. This is reversible by updating their status back.",
     annotations: {

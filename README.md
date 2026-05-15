@@ -224,6 +224,8 @@ All configuration is via environment variables. Only `LEMONSQUEEZY_API_KEY` (or 
 | `LEMONSQUEEZY_ALLOWED_STORE_IDS` | Comma-separated allowlist of store IDs. When set: (1) any tool whose input includes a `storeId` rejects calls to a non-allowed store; (2) tools that *accept* a `storeId` filter (e.g. `ls_list_orders`, `ls_list_subscriptions`) require it — calls without one are blocked so a missing filter cannot return data from every store the API key can see. Tools with no `storeId` field at all (e.g. `ls_refund_order`, `ls_cancel_subscription`, `ls_archive_customer`, `ls_delete_webhook`, `ls_delete_discount`, `ls_update_license_key`, `ls_list_stores`) route by their own resource ID and are **not** gated by this allowlist. For those, the only authoritative store boundary is the API key itself — pair this setting with a LemonSqueezy API key scoped to the same store(s), and pair with `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` / `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` for additional defense in depth. |
 | `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` | Rejects `ls_refund_order` and `ls_refund_subscription_invoice` calls above this amount. |
 | `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` | Max destructive tool calls per 60-second rolling window. In-process limit — per MCP server instance, not global; each `npx` cold start resets the window. Counts include `ls_update_license_key` calls that set `disabled: true`, and `ls_update_subscription` calls that pause or switch plan. |
+| `LEMONSQUEEZY_DISABLE_CLASSES` | Comma-separated list of [authority classes](#authority-classes) to refuse outright. Any tool whose class is listed returns a `guardrail_block` before the API call is attempted. Example: `LEMONSQUEEZY_DISABLE_CLASSES=money,recurring,pii` lets an agent run reads but blocks refunds, subscription changes, and customer-record access. Unknown class names throw at server startup. |
+| `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS` | Per-class rolling rate limits, comma-separated. Each entry is `class:N`, `class:N/m`, or `class:N/h` (bare numbers default to per-minute). Example: `money:2/h,recurring:5/h,key:10/m`. Composes with `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` — both must pass. In-process per server instance. |
 | `LEMONSQUEEZY_LOG` | Structured-log verbosity to stderr. Set to `all` (or legacy `json`) to log every tool and HTTP call, `audit` to log only destructive-call audit entries plus errors (recommended for production), `error` to log only failures. Unset: no logs. Destructive calls are tagged `audit: true` and include their inputs. |
 
 ### Logging format
@@ -233,6 +235,24 @@ Each line: `{ts, event, tool?, method?, path?, status, latency_ms, request_id?, 
 ### Error decoration
 
 HTTP errors include the upstream `X-Request-Id` when present, so support tickets to LemonSqueezy can reference the exact call.
+
+## Authority classes
+
+Every tool is tagged with an **authority class** — a label for the kind of business authority a caller needs to invoke it. The class is separate from the binary destructive/read-only annotation: a customer-record read and a product list are both reads, but only one returns PII; a checkout creation and a refund are both writes, but only one moves money. Granular classes let an operator gate by the dimension that matters, instead of being stuck with a single "destructive" toggle.
+
+| Class | What it covers | Example tools |
+| --- | --- | --- |
+| `read` | Safe reads (list/get) that don't return customer PII as the primary payload. | `ls_list_orders`, `ls_get_product`, `ls_validate_license` |
+| `pii` | Reads or writes whose primary payload is a customer record. | `ls_list_customers`, `ls_create_customer`, `ls_archive_customer` |
+| `mutate` | Safe mutations: checkouts, discounts, invoice generation, usage records. | `ls_create_checkout`, `ls_create_discount`, `ls_generate_order_invoice` |
+| `money` | Money movement. Irreversible at the payment layer. | `ls_refund_order`, `ls_refund_subscription_invoice` |
+| `recurring` | Subscription state changes that affect recurring revenue. | `ls_update_subscription`, `ls_cancel_subscription`, `ls_update_subscription_item` |
+| `key` | License-key admin (activate, deactivate, disable, change activation limit). | `ls_update_license_key`, `ls_activate_license`, `ls_deactivate_license` |
+| `webhook` | Webhook configuration — affects the trust surface other systems rely on. | `ls_create_webhook`, `ls_update_webhook`, `ls_delete_webhook` |
+
+Note: `ls_get_order` returns customer fields incidentally, but its primary payload is the order — it stays in `read`, not `pii`. The class is reserved for tools whose *primary purpose* is the customer record. If you need to deny all access to customer-shaped data, prefer a scoped API key over class-disable alone.
+
+`LEMONSQUEEZY_DISABLE_CLASSES` blocks a class outright. `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS` caps the call rate per class. Both are opt-in; with neither set, behavior is unchanged from prior versions.
 
 ## Resources
 
@@ -248,9 +268,10 @@ For unattended/agentic use against a live store, we recommend:
 
 1. Use a LemonSqueezy API key scoped to the specific store(s) the agent may touch — this is the only authoritative store boundary for tools that route by their own resource ID (refunds, cancels, archive, delete-webhook, etc.). Set `LEMONSQUEEZY_ALLOWED_STORE_IDS` to the same set as a defense-in-depth gate on the tools that *do* take a `storeId`.
 2. Set `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` to a per-call cap well below any single-refund expectation.
-3. Set `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` to a small number (e.g. 5/min) as a runaway-agent circuit breaker.
-4. Set `LEMONSQUEEZY_LOG=audit` and ship stderr to your log aggregator. The `audit` level keeps every destructive-call entry plus errors but drops successful reads so log volume stays bounded over weeks of operation. Alert on `status: "guardrail_block"` or elevated error rates per tool. Use `LEMONSQUEEZY_LOG=all` while debugging.
-5. Run `LEMONSQUEEZY_API_KEY_COMMAND` against a vault-backed secret so credentials can rotate without restarting the server process. The API client invalidates its in-process key cache automatically on a 401/403, so a rotated upstream key picks up on the next request rather than waiting on the 1h TTL.
+3. Set `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` to a small number (e.g. 5/min) as a runaway-agent circuit breaker. For finer control, add `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS=money:2/h,recurring:5/h,key:10/m` so each [authority class](#authority-classes) has its own ceiling.
+4. If a class shouldn't be reachable at all (e.g. an analytics agent that needs only `read`), set `LEMONSQUEEZY_DISABLE_CLASSES` to refuse the rest outright — calls return a `guardrail_block` before the API is touched.
+5. Set `LEMONSQUEEZY_LOG=audit` and ship stderr to your log aggregator. The `audit` level keeps every destructive-call entry plus errors but drops successful reads so log volume stays bounded over weeks of operation. Alert on `status: "guardrail_block"` or elevated error rates per tool. Use `LEMONSQUEEZY_LOG=all` while debugging.
+6. Run `LEMONSQUEEZY_API_KEY_COMMAND` against a vault-backed secret so credentials can rotate without restarting the server process. The API client invalidates its in-process key cache automatically on a 401/403, so a rotated upstream key picks up on the next request rather than waiting on the 1h TTL.
 
 What the server does **not** do and you must own at the caller level:
 

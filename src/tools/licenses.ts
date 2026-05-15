@@ -4,6 +4,7 @@ import { licenseRequest } from "../api.js";
 export const licenseTools = [
   {
     name: "ls_activate_license",
+    authorityClass: "key" as const,
     description:
       "Activate a license key for an instance. Does not require an API key — uses the license key itself for auth.",
     annotations: {
@@ -29,6 +30,7 @@ export const licenseTools = [
   },
   {
     name: "ls_validate_license",
+    authorityClass: "read" as const,
     description:
       "Validate a license key or specific instance. Does not require an API key — uses the license key itself for auth.",
     annotations: {
@@ -50,6 +52,7 @@ export const licenseTools = [
   },
   {
     name: "ls_deactivate_license",
+    authorityClass: "key" as const,
     description:
       "Deactivate a license key instance. Does not require an API key — uses the license key itself for auth.",
     annotations: {
