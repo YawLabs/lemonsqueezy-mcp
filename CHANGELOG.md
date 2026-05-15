@@ -4,6 +4,8 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-05-15
+
 ### Added
 
 - `.github/workflows/release.yml` now publishes to the [Official MCP Registry](https://registry.modelcontextprotocol.io) after the post-publish smoke test passes. Authentication is via GitHub OIDC — the `id-token: write` permission already enabled for npm provenance also satisfies the registry's auth; no `MCP_*` secret is required. The namespace `io.github.YawLabs/*` is authorized purely from the OIDC `repository_owner` claim, so anyone outside the YawLabs GitHub org cannot publish under it. A `jq` step overwrites `server.json`'s `version` (and `packages[0].version`) from the pushed tag, so a forgotten manual bump on `server.json` no longer publishes a stale version to the registry. Downstream registries (Glama, PulseMCP, mcpservers.org) that auto-source from the official registry now pick up each `@yawlabs/lemonsqueezy-mcp` release without a manual mcp-publisher run.
@@ -266,7 +268,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.7.1...v0.8.1

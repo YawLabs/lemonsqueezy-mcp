@@ -2,12 +2,12 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
   "name": "io.github.YawLabs/lemonsqueezy-mcp",
   "description": "LemonSqueezy MCP server. Manage your store, products, customers, subscriptions, discounts, license keys, webhooks, and more from any MCP-compatible AI assistant. Ships with optional guardrails (store allowlist, refund cap, destructive-call rate limit, parent-filter scoping), audit logging, and an audit-log MCP Resource.",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "packages": [
     {
       "registry_type": "npm",
       "identifier": "@yawlabs/lemonsqueezy-mcp",
-      "version": "0.9.1"
+      "version": "0.9.2"
     }
   ]
 }
