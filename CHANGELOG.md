@@ -4,6 +4,12 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [Unreleased]
 
+## [0.9.3] — 2026-05-15
+
+### Fixed
+
+- `server.json` rewritten against the current registry schema (`2025-12-11`). The 0.9.2 release's MCP-Registry publish step failed validation against the live schema: `description` exceeded the 100-char cap, the package field was `registry_type` (snake_case) where the schema expects `registryType` (camelCase), and the required `packages[].transport` field was missing. 0.9.2 is live on npm and GitHub but did not reach the Official MCP Registry. 0.9.3 is the first release that should land on `registry.modelcontextprotocol.io`.
+
 ## [0.9.2] — 2026-05-15
 
 ### Added
@@ -268,7 +274,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.8.1...v0.9.0
