@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -7,13 +8,22 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const COMMAND_TIMEOUT_MS = 10_000;
 const COMMAND_MAX_BUFFER = 64 * 1024;
 
-// The cache fingerprint encodes both the source mode (cmd vs test vs env) and
-// the raw source value. If LEMONSQUEEZY_API_KEY_COMMAND, LEMONSQUEEZY_TEST_API_KEY,
-// or LEMONSQUEEZY_API_KEY changes mid-process, the fingerprint changes too and
-// the next loadApiKey() call refreshes from the new source instead of returning
-// a stale entry. Also lets `invalidateApiKeyCache()` (called from api.ts on
-// 401/403) behave uniformly across all three source modes.
+// The cache fingerprint is a SHA-256 digest of `mode:value` where mode is one
+// of `cmd`, `test`, or `env`. If LEMONSQUEEZY_API_KEY_COMMAND,
+// LEMONSQUEEZY_TEST_API_KEY, or LEMONSQUEEZY_API_KEY changes mid-process, the
+// fingerprint changes too and the next loadApiKey() call refreshes from the
+// new source instead of returning a stale entry. Also lets
+// `invalidateApiKeyCache()` (called from api.ts on 401/403) behave uniformly
+// across all three source modes.
+//
+// Using a hash rather than the raw value keeps the only in-memory copy of the
+// secret in `cached.key`, so an error dump, debug snapshot, or future on-disk
+// cache that serialized the fingerprint would not leak the key.
 type CachedKey = { fingerprint: string; key: string; expiresAt: number };
+
+function fingerprintFor(mode: "cmd" | "test" | "env", raw: string): string {
+  return createHash("sha256").update(`${mode}:${raw}`).digest("hex");
+}
 
 let cached: CachedKey | null = null;
 
@@ -83,7 +93,7 @@ export async function loadApiKey(): Promise<string> {
   const cmdStr = process.env.LEMONSQUEEZY_API_KEY_COMMAND;
 
   if (cmdStr && cmdStr.trim() !== "") {
-    const fingerprint = `cmd:${cmdStr}`;
+    const fingerprint = fingerprintFor("cmd", cmdStr);
     const hit = fromCache(fingerprint);
     if (hit !== null) return hit;
 
@@ -111,7 +121,7 @@ export async function loadApiKey(): Promise<string> {
   // but blank to disable test mode without unsetting it.
   const testRaw = process.env.LEMONSQUEEZY_TEST_API_KEY;
   if (testRaw && testRaw.trim() !== "") {
-    const fingerprint = `test:${testRaw}`;
+    const fingerprint = fingerprintFor("test", testRaw);
     const hit = fromCache(fingerprint);
     if (hit !== null) {
       // Cache hit -- but if this is the first time the test source is being
@@ -139,7 +149,7 @@ export async function loadApiKey(): Promise<string> {
   // path: the fingerprint check picks up a mid-process env mutation
   // automatically, and invalidateApiKeyCache() works the same way for
   // both modes (clears any stale entry; next call re-reads the env).
-  const fingerprint = `env:${raw}`;
+  const fingerprint = fingerprintFor("env", raw);
   const hit = fromCache(fingerprint);
   if (hit !== null) return hit;
   intoCache(fingerprint, raw);
@@ -158,4 +168,18 @@ export function invalidateApiKeyCache(): void {
 export function _resetApiKeyCacheForTest(): void {
   cached = null;
   testModeAnnounced = false;
+}
+
+// Test-only: expose the cached fingerprint so tests can assert it is a hash
+// rather than the raw secret. Returns null when no entry is cached.
+export function _inspectCachedFingerprintForTest(): string | null {
+  return cached?.fingerprint ?? null;
+}
+
+// Test-only: force the cached entry's expiresAt to a past timestamp so the
+// next loadApiKey() call exercises the TTL-miss branch. No-op when nothing
+// is cached. Lets the TTL path be tested without sleeping the test process
+// for an hour or stubbing Date.now globally.
+export function _expireApiKeyCacheForTest(): void {
+  if (cached) cached.expiresAt = 0;
 }

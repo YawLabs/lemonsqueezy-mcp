@@ -25,7 +25,13 @@ startCommand:
         description: Cap on a single refund amount, in cents. Refund calls above this fail before reaching the API.
       lemonsqueezyDestructiveRateLimit:
         type: string
-        description: Rate limit for destructive operations (refunds, cancellations, deletes). Format depends on server defaults.
+        description: Positive integer. Maximum destructive tool calls allowed per 60-second rolling window (per server instance). Example "5". Combines with lemonsqueezyRateLimitPerClass; both must pass.
+      lemonsqueezyDisableClasses:
+        type: string
+        description: Comma-separated list of authority classes to refuse outright. Valid classes are read, pii, mutate, money, recurring, key, webhook. Example "money,recurring,pii" lets reads through but blocks refunds, subscription changes, and customer-record access. Unknown class names cause server startup to fail.
+      lemonsqueezyRateLimitPerClass:
+        type: string
+        description: Per-authority-class rolling rate limits, comma-separated. Each entry is "class:N", "class:N/m", or "class:N/h"; bare numbers default to per-minute. Example "money:2/h,recurring:5/h,key:10/m". Composes with lemonsqueezyDestructiveRateLimit. This is the load-bearing setting for runaway-agent prevention -- LemonSqueezy permissions cannot express per-class call ceilings.
       lemonsqueezyLog:
         type: string
         description: Structured-log level (stderr). One of off, error, audit (recommended for production), all, json. Unset disables logging.
@@ -47,6 +53,8 @@ startCommand:
         if (config.lemonsqueezyAllowedStoreIds) env.LEMONSQUEEZY_ALLOWED_STORE_IDS = config.lemonsqueezyAllowedStoreIds;
         if (config.lemonsqueezyMaxRefundAmountCents) env.LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS = config.lemonsqueezyMaxRefundAmountCents;
         if (config.lemonsqueezyDestructiveRateLimit) env.LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT = config.lemonsqueezyDestructiveRateLimit;
+        if (config.lemonsqueezyDisableClasses) env.LEMONSQUEEZY_DISABLE_CLASSES = config.lemonsqueezyDisableClasses;
+        if (config.lemonsqueezyRateLimitPerClass) env.LEMONSQUEEZY_RATE_LIMIT_PER_CLASS = config.lemonsqueezyRateLimitPerClass;
         if (config.lemonsqueezyLog) env.LEMONSQUEEZY_LOG = config.lemonsqueezyLog;
         return {
           command: 'npx',

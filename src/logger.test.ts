@@ -223,4 +223,83 @@ describe("logEvent", () => {
       cap.restore();
     }
   });
+
+  it("fallback emits a line when `error` is a BigInt", () => {
+    // BigInts are not JSON-serializable -- the first JSON.stringify
+    // throws on them. The fallback's safeString coerces via `String()`
+    // (e.g. "1234567890n" -> "1234567890"), so the second serialization
+    // succeeds. Real-world relevance: upstream responses sometimes
+    // surface timestamps or large counters as BigInt in error fields.
+    process.env.LEMONSQUEEZY_LOG = "json";
+    const cap = captureStderr();
+    try {
+      // BigInt in inputs forces the first JSON.stringify to throw.
+      // BigInt in error forces the fallback to coerce via safeString.
+      assert.doesNotThrow(() =>
+        logEvent({
+          event: "tool_call",
+          tool: "ls_refund_order",
+          status: "exception",
+          audit: true,
+          inputs: { amountCents: 12345n },
+          error: 9876543210n as unknown as string,
+        }),
+      );
+      assert.equal(cap.lines.length, 1, "fallback must emit a single line");
+      const parsed = JSON.parse((cap.lines[0] ?? "").trim());
+      assert.equal(parsed.tool, "ls_refund_order");
+      assert.equal(parsed.status, "exception");
+      assert.equal(parsed.log_error, "inputs_not_serializable");
+      assert.equal(parsed.error, "9876543210", "BigInt should be coerced to its decimal string form");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("fallback emits a line even when `error` is a non-string object with a problematic toJSON", () => {
+    // Simulates an upstream that propagated `entry.error` as something other
+    // than a plain string -- e.g. an Error wrapped in a chain of `cause`
+    // references with a toJSON that throws. The fallback serialization must
+    // coerce `error` to a safe string and still write the audit line; in
+    // older code, this case skipped both write attempts and degraded to
+    // total silence.
+    process.env.LEMONSQUEEZY_LOG = "json";
+    const cap = captureStderr();
+    try {
+      const cycleInputs: Record<string, unknown> = {};
+      cycleInputs.self = cycleInputs;
+
+      // entry.error is typed as `string | undefined`, but downstream callers
+      // can hand the logger something that violates the type (e.g. an Error
+      // instance) when the type system has been relaxed at a boundary. The
+      // cast simulates that.
+      const bogusError = {
+        toJSON() {
+          throw new Error("toJSON throws");
+        },
+      } as unknown as string;
+
+      assert.doesNotThrow(() =>
+        logEvent({
+          event: "tool_call",
+          tool: "ls_refund_order",
+          status: "exception",
+          audit: true,
+          inputs: cycleInputs,
+          error: bogusError,
+        }),
+      );
+      assert.equal(cap.lines.length, 1, "fallback must still emit a line");
+      const parsed = JSON.parse((cap.lines[0] ?? "").trim());
+      assert.equal(parsed.tool, "ls_refund_order");
+      assert.equal(parsed.status, "exception");
+      assert.equal(parsed.log_error, "inputs_not_serializable");
+      // safeString uses String(value); the resulting form depends on
+      // Object.prototype.toString or the object's own toString; either way
+      // it must be a string, not undefined.
+      assert.equal(typeof parsed.error, "string");
+    } finally {
+      cap.restore();
+    }
+  });
 });

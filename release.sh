@@ -98,7 +98,7 @@ fi
 if [ "$IS_CI" != "true" ] && [ "$RESUMING" != "true" ]; then
   echo ""
   echo -e "${YELLOW}About to release v${VERSION}. This will:${NC}"
-  echo "  1. Lint"
+  echo "  1. Lint + Containerfile drift check"
   echo "  2. Test"
   echo "  3. Bump version in package.json"
   echo "  4. Commit, tag, and push to origin/main"
@@ -117,9 +117,11 @@ fi
 # =============================================================================
 # Step 1: Lint
 # =============================================================================
-step 1 "Lint"
+step 1 "Lint and Containerfile drift check"
 npm run lint || fail "Lint failed (try: npm run lint:fix)"
 info "Lint passed"
+npm run check:containerfile || fail "Containerfile drifted from Dockerfile (run: npm run gen:containerfile)"
+info "Containerfile in sync with Dockerfile"
 
 # =============================================================================
 # Step 2: Test (npm test runs the build internally)

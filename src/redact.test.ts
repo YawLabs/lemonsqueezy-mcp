@@ -46,6 +46,74 @@ describe("redactSecrets", () => {
       assert.deepEqual(redactSecrets({ signing_secret: "x" }), { signing_secret: "[REDACTED]" });
       assert.deepEqual(redactSecrets({ "signing-secret": "x" }), { "signing-secret": "[REDACTED]" });
     });
+    it("redacts private_key spellings", () => {
+      assert.deepEqual(redactSecrets({ privateKey: "x" }), { privateKey: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ private_key: "x" }), { private_key: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ "private-key": "x" }), { "private-key": "[REDACTED]" });
+    });
+    it("redacts PII-shaped key names (pin, ssn, credit_card, card_number, cvv, cvc)", () => {
+      assert.deepEqual(redactSecrets({ pin: "1234" }), { pin: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ ssn: "111-22-3333" }), { ssn: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ socialSecurityNumber: "x" }), { socialSecurityNumber: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ social_security_number: "x" }), { social_security_number: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ creditCard: "x" }), { creditCard: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ credit_card: "x" }), { credit_card: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ cardNumber: "x" }), { cardNumber: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ card_number: "x" }), { card_number: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ cvv: "123" }), { cvv: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ cvc: "456" }), { cvc: "[REDACTED]" });
+    });
+  });
+
+  describe("value-shape redaction (JWT-like strings)", () => {
+    // A real-looking JWT: base64url(header).base64url(payload).base64url(signature)
+    const sampleJwt =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJpYXQiOjE2MDB9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+
+    it("redacts a JWT-shaped value even under an innocuous key", () => {
+      assert.deepEqual(redactSecrets({ customData: sampleJwt }), { customData: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ metadata: sampleJwt }), { metadata: "[REDACTED]" });
+    });
+
+    it("redacts JWT-shaped values nested in arrays and objects", () => {
+      const input = {
+        items: [{ value: sampleJwt }, { value: "not-a-token" }],
+        nested: { credential: sampleJwt },
+      };
+      assert.deepEqual(redactSecrets(input), {
+        items: [{ value: "[REDACTED]" }, { value: "not-a-token" }],
+        nested: { credential: "[REDACTED]" },
+      });
+    });
+
+    it("does NOT redact UUID-shaped license keys, hyphenated codes, or short opaque IDs", () => {
+      const input = {
+        licenseKey: "ABCD-EFGH-1234-5678",
+        instanceId: "8e3a4f9d-1234-5678-9abc-def012345678",
+        storeId: "12345",
+        sku: "PRO-MONTHLY",
+        couponCode: "SUMMER20",
+      };
+      assert.deepEqual(redactSecrets(input), input);
+    });
+
+    it("does NOT redact short eyJ-prefixed strings that aren't full JWTs", () => {
+      // The JWT regex requires three base64url segments each at least 4 chars,
+      // so a bare prefix or a two-segment value passes through unredacted.
+      assert.deepEqual(redactSecrets({ note: "eyJ" }), { note: "eyJ" });
+      assert.deepEqual(redactSecrets({ note: "eyJsomething" }), { note: "eyJsomething" });
+      assert.deepEqual(redactSecrets({ note: "eyJfoo.bar" }), { note: "eyJfoo.bar" });
+    });
+
+    it("redacts a JWT-shaped string at the root (no wrapping object)", () => {
+      // Production always wraps tool inputs in an object, but the value-
+      // shape branch runs before the object/array branches in redactInner,
+      // and the top-level case exercises depth=0 directly. Catches a
+      // refactor that moved the string check below the object check.
+      const sampleJwt =
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJpYXQiOjE2MDB9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+      assert.equal(redactSecrets(sampleJwt), "[REDACTED]");
+    });
   });
 
   describe("ordinary identifiers are NOT redacted", () => {

@@ -16,6 +16,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
+import { _resetApiKeyCacheForTest } from "../secret.js";
 import { customerTools } from "../tools/customers.js";
 import { discountTools } from "../tools/discounts.js";
 import { orderTools } from "../tools/orders.js";
@@ -44,16 +45,41 @@ function uniqueSuffix(): string {
   return randomUUID().replace(/-/g, "").slice(0, 8);
 }
 
+// Snapshot every source the secret loader consults. A developer running the
+// integration suite locally with a vault-backed LEMONSQUEEZY_API_KEY_COMMAND
+// would otherwise hit their dev key -- the command source takes precedence
+// over the bare env var in secret.ts, so just setting LEMONSQUEEZY_API_KEY
+// here would be silently ignored. Clear all three, point the loader at the
+// test key explicitly, and restore on teardown.
 const prevApiKey = process.env.LEMONSQUEEZY_API_KEY;
+const prevKeyCommand = process.env.LEMONSQUEEZY_API_KEY_COMMAND;
+const prevTestApiKey = process.env.LEMONSQUEEZY_TEST_API_KEY;
+
+function restoreEnvVar(name: string, prev: string | undefined): void {
+  if (prev === undefined) delete process.env[name];
+  else process.env[name] = prev;
+}
 
 before(() => {
-  if (enabled) process.env.LEMONSQUEEZY_API_KEY = testApiKey;
+  if (!enabled) return;
+  delete process.env.LEMONSQUEEZY_API_KEY_COMMAND;
+  delete process.env.LEMONSQUEEZY_TEST_API_KEY;
+  process.env.LEMONSQUEEZY_API_KEY = testApiKey;
+  // Reset the in-process secret cache so the first loadApiKey() call
+  // reads from the freshly-set env var instead of returning whatever a
+  // prior test (handlers.test.ts) left cached. Mirrors the pattern in
+  // handlers.test.ts so the two suites compose cleanly when run together.
+  _resetApiKeyCacheForTest();
 });
 
 after(() => {
   if (!enabled) return;
-  if (prevApiKey === undefined) delete process.env.LEMONSQUEEZY_API_KEY;
-  else process.env.LEMONSQUEEZY_API_KEY = prevApiKey;
+  restoreEnvVar("LEMONSQUEEZY_API_KEY", prevApiKey);
+  restoreEnvVar("LEMONSQUEEZY_API_KEY_COMMAND", prevKeyCommand);
+  restoreEnvVar("LEMONSQUEEZY_TEST_API_KEY", prevTestApiKey);
+  // Drop the cached test key so anything that runs after this suite in
+  // the same process picks up the restored env vars on its next call.
+  _resetApiKeyCacheForTest();
 });
 
 function findTool<T extends readonly { name: string }[]>(tools: T, name: string): T[number] {

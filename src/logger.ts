@@ -54,6 +54,21 @@ function shouldLog(entry: LogEntry, level: LogLevel): boolean {
   }
 }
 
+// Defensive coercion to a plain string. Used to flatten `entry.error` in the
+// fallback path -- in the rare case the upstream propagated a non-string
+// `error` field (an Error wrapped in a `cause` chain, or a string with a
+// circular toJSON), the fallback's second JSON.stringify can throw and
+// degrade to silence. Forcing a string here keeps the fallback resilient.
+function safeString(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return String(value);
+  } catch {
+    return "[unrepresentable]";
+  }
+}
+
 export function logEvent(entry: LogEntry): void {
   const level = getLogLevel();
   if (!shouldLog(entry, level)) return;
@@ -77,7 +92,7 @@ export function logEvent(entry: LogEntry): void {
       latency_ms: entry.latency_ms,
       request_id: entry.request_id,
       audit: entry.audit,
-      error: entry.error,
+      error: safeString(entry.error),
       log_error: "inputs_not_serializable",
     });
     process.stderr.write(`${fallback}\n`);

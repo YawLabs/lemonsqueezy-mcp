@@ -35,6 +35,8 @@
     "test:integration": "npm run build && node --test dist/integration/*.test.js",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
+    "gen:containerfile": "node scripts/sync-containerfile.mjs",
+    "check:containerfile": "node scripts/sync-containerfile.mjs --check",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {},

@@ -3,7 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { _resetApiKeyCacheForTest, invalidateApiKeyCache, loadApiKey } from "./secret.js";
+import {
+  _expireApiKeyCacheForTest,
+  _inspectCachedFingerprintForTest,
+  _resetApiKeyCacheForTest,
+  invalidateApiKeyCache,
+  loadApiKey,
+} from "./secret.js";
 
 const ENV_KEYS = ["LEMONSQUEEZY_API_KEY", "LEMONSQUEEZY_API_KEY_COMMAND", "LEMONSQUEEZY_TEST_API_KEY"] as const;
 
@@ -295,6 +301,97 @@ describe("loadApiKey", () => {
       await loadApiKey();
       const testModeLines = cap.lines.filter((l) => l.includes('"event":"test_mode"'));
       assert.equal(testModeLines.length, 0);
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it("does not embed the raw API key in the cache fingerprint", async () => {
+    // The cached entry holds the raw key in `key` (the API client needs it
+    // verbatim), but the `fingerprint` field used to detect mid-process
+    // source changes must NOT carry the raw value -- otherwise an error
+    // dump, debug snapshot, or future on-disk cache that serialized the
+    // fingerprint would leak the secret. A SHA-256 hex digest is a fixed
+    // 64-char hex string and cannot contain the secret itself.
+    const secret = "super-secret-distinguishable-value-12345";
+    process.env.LEMONSQUEEZY_API_KEY = secret;
+    await loadApiKey();
+
+    const fp = _inspectCachedFingerprintForTest();
+    assert.ok(fp, "fingerprint should be populated after loadApiKey");
+    assert.equal(fp.length, 64, "fingerprint should be a 64-char SHA-256 hex");
+    assert.match(fp, /^[0-9a-f]{64}$/);
+    assert.ok(!fp.includes(secret), "fingerprint must not contain the raw secret");
+    assert.ok(!fp.startsWith("env:"), "fingerprint must not be the legacy `env:<raw>` form");
+  });
+
+  it("re-reads the source when the cache TTL expires (env mode)", async () => {
+    // Env mode is the simplest TTL-path exercise -- no external command,
+    // no test-mode notice. The path matters in production for upstream
+    // key rotations that don't trigger a 401/403 (e.g. an old key still
+    // accepted during a grace window); the 1h TTL is the upper bound on
+    // serving a stale cached value.
+    process.env.LEMONSQUEEZY_API_KEY = "initial_key";
+    const k1 = await loadApiKey();
+    assert.equal(k1, "initial_key");
+
+    // Rotate upstream and force the cache to be considered expired.
+    // fromCache() should return null on the next call, so loadApiKey
+    // re-reads from process.env and surfaces the rotated value.
+    process.env.LEMONSQUEEZY_API_KEY = "rotated_key";
+    _expireApiKeyCacheForTest();
+    const k2 = await loadApiKey();
+    assert.equal(k2, "rotated_key");
+  });
+
+  it("re-runs the command when the cache TTL expires (command mode)", async () => {
+    const counterDir = fs.mkdtempSync(path.join(os.tmpdir(), "ls-mcp-secret-"));
+    const counterFile = path.join(counterDir, "count");
+    fs.writeFileSync(counterFile, "0");
+    const escapedCounter = counterFile.replace(/\\/g, "\\\\");
+    const scriptPath = writeJsScript(
+      `const fs=require('fs');const p='${escapedCounter}';const n=parseInt(fs.readFileSync(p,'utf8'))+1;fs.writeFileSync(p,String(n));console.log('key_'+n);`,
+    );
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `"${process.execPath}" "${scriptPath}"`;
+
+    const k1 = await loadApiKey();
+    assert.equal(k1, "key_1");
+    const k2 = await loadApiKey();
+    assert.equal(k2, "key_1");
+    assert.equal(fs.readFileSync(counterFile, "utf8"), "1", "second call must hit the cache, not the script");
+
+    // TTL miss: the script runs a second time. The command string did
+    // not change, so this exercises the TTL branch in particular -- a
+    // fingerprint mismatch would also re-run, but here the fingerprint
+    // is stable.
+    _expireApiKeyCacheForTest();
+    const k3 = await loadApiKey();
+    assert.equal(k3, "key_2");
+    assert.equal(fs.readFileSync(counterFile, "utf8"), "2");
+  });
+
+  it("test-mode fingerprint is a distinct hash from the same value under env mode", async () => {
+    // Same raw value under different source modes must produce different
+    // fingerprints so a switch from test to prod (or vice versa) invalidates
+    // the cache. The mode prefix going into the hash (`test:` vs `env:`)
+    // makes the two digests distinct without exposing the raw value.
+    const sameValue = "rotation-test-value";
+
+    process.env.LEMONSQUEEZY_TEST_API_KEY = sameValue;
+    const cap = captureStderr();
+    try {
+      await loadApiKey();
+      const testFp = _inspectCachedFingerprintForTest();
+      assert.ok(testFp);
+
+      invalidateApiKeyCache();
+      delete process.env.LEMONSQUEEZY_TEST_API_KEY;
+      process.env.LEMONSQUEEZY_API_KEY = sameValue;
+      await loadApiKey();
+      const envFp = _inspectCachedFingerprintForTest();
+      assert.ok(envFp);
+
+      assert.notEqual(testFp, envFp, "mode change must produce a different fingerprint");
     } finally {
       cap.restore();
     }

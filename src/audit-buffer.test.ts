@@ -55,6 +55,25 @@ describe("audit-buffer", () => {
     assert.equal(out[2]?.tool, "t7");
   });
 
+  it("returns the N newest after an overflow", () => {
+    // The circular-buffer cursor math (`(next - 1 + cap) % cap`) is the
+    // failure-prone part of the new implementation. This combines the
+    // overflow case (push 1100 into 1000) with a small limit (read 5)
+    // to confirm the cursor walks back from the latest write head, not
+    // from a stale anchor or the dropped-prefix start.
+    _resetAuditBufferForTest(1000);
+    for (let i = 0; i < 1100; i++) {
+      pushAuditEntry(entry(`t${i}`));
+    }
+    const out = readAuditEntries(5);
+    assert.equal(out.length, 5);
+    assert.equal(out[0]?.tool, "t1099");
+    assert.equal(out[1]?.tool, "t1098");
+    assert.equal(out[2]?.tool, "t1097");
+    assert.equal(out[3]?.tool, "t1096");
+    assert.equal(out[4]?.tool, "t1095");
+  });
+
   it("limit >= buffer size returns the whole buffer", () => {
     pushAuditEntry(entry("a"));
     pushAuditEntry(entry("b"));

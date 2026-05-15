@@ -21,23 +21,28 @@ export type AuditEntry = { ts: string } & LogEntry;
 // 2 KB, so 1000 entries is < 2 MB.
 const DEFAULT_CAP = 1000;
 
-let buffer: AuditEntry[] = [];
+// True circular buffer: a fixed-capacity backing array with a write head
+// (`next`) and a populated count (`size`). Overflow is O(1) -- the new
+// entry overwrites the oldest slot in place. Previous implementation used
+// `Array.splice(0, n)` which is O(N) per overflow; not observable at
+// 1000 cap on a stdio server, but the circular form is also simpler.
+let backing: (AuditEntry | undefined)[] = new Array(DEFAULT_CAP);
 let cap = DEFAULT_CAP;
+let next = 0;
+let size = 0;
 
 /**
  * Append an entry to the ring buffer. When the buffer is at capacity the
- * oldest entry is dropped so the most-recent N are always retained.
+ * oldest entry is overwritten in place so the most-recent N are always
+ * retained.
  *
  * Entries are stored by reference (not cloned) -- see the `AuditEntry`
  * docstring for the rationale.
  */
 export function pushAuditEntry(entry: AuditEntry): void {
-  buffer.push(entry);
-  if (buffer.length > cap) {
-    // Trim from the front. `splice` keeps the array identity stable so
-    // any retained references to `buffer` stay valid.
-    buffer.splice(0, buffer.length - cap);
-  }
+  backing[next] = entry;
+  next = (next + 1) % cap;
+  if (size < cap) size += 1;
 }
 
 /**
@@ -48,20 +53,30 @@ export function pushAuditEntry(entry: AuditEntry): void {
  * same object references stored in the buffer (see `AuditEntry` rationale).
  */
 export function readAuditEntries(limit?: number): AuditEntry[] {
-  // Walk newest -> oldest. Slice avoids mutating the underlying buffer
-  // when callers reverse or splice the result.
-  const reversed = buffer.slice().reverse();
-  if (limit === undefined || limit >= reversed.length) return reversed;
-  if (limit <= 0) return [];
-  return reversed.slice(0, limit);
+  if (limit !== undefined && limit <= 0) return [];
+  const wanted = limit === undefined ? size : Math.min(limit, size);
+  if (wanted === 0) return [];
+
+  const out: AuditEntry[] = new Array(wanted);
+  // The newest entry sits at backing[(next - 1 + cap) % cap]; walk backwards.
+  let cursor = (next - 1 + cap) % cap;
+  for (let i = 0; i < wanted; i++) {
+    // Buffer is dense when size > 0, so the entry at every visited slot
+    // is defined. The `as AuditEntry` assertion documents that invariant.
+    out[i] = backing[cursor] as AuditEntry;
+    cursor = (cursor - 1 + cap) % cap;
+  }
+  return out;
 }
 
 /**
- * Test-only helper -- empties the buffer and resets the cap to default.
- * Exported so tests can isolate state between runs without exposing
- * mutation hooks to production callers.
+ * Test-only helper -- empties the buffer and resets the cap to the
+ * supplied value (or default). Exported so tests can isolate state
+ * between runs without exposing mutation hooks to production callers.
  */
 export function _resetAuditBufferForTest(cap_?: number): void {
-  buffer = [];
   cap = cap_ ?? DEFAULT_CAP;
+  backing = new Array(cap);
+  next = 0;
+  size = 0;
 }
