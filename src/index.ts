@@ -15,6 +15,7 @@ import { orderItemTools } from "./tools/order-items.js";
 import { orderTools } from "./tools/orders.js";
 import { priceTools } from "./tools/prices.js";
 import { productTools } from "./tools/products.js";
+import { sinkTools } from "./tools/sink.js";
 import { storeTools } from "./tools/stores.js";
 import { subscriptionInvoiceTools } from "./tools/subscription-invoices.js";
 import { subscriptionItemTools } from "./tools/subscription-items.js";
@@ -71,6 +72,7 @@ const allTools: RegisterableTool<any>[] = [
   ...webhookTools,
   ...licenseTools,
   ...affiliateTools,
+  ...sinkTools,
 ];
 
 const server = new McpServer({

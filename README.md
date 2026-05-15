@@ -100,7 +100,7 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-## Tools (61)
+## Tools (64)
 
 ### Users
 - `ls_get_user` — Get the authenticated user
@@ -201,9 +201,16 @@ Add to `claude_desktop_config.json`:
 - `ls_validate_license` — Validate a license key (no API key required)
 - `ls_deactivate_license` — Deactivate a license key instance (no API key required)
 
+### Webhook sink (optional)
+Bridge to a separate [@yawlabs/lemonsqueezy-webhook-sink](https://github.com/YawLabs/lemonsqueezy-webhook-sink) process so the agent can reconcile against webhooks that actually fired. Tools are always registered; if `LEMONSQUEEZY_SINK_URL` / `LEMONSQUEEZY_SINK_ADMIN_TOKEN` are unset, calls return a clear "not configured" error.
+
+- `ls_sink_events_list` — List webhook events the sink has received (filter by `since` / `type` / `limit`)
+- `ls_sink_event_mark_processed` — Mark a sink event as processed by your consumer (idempotent)
+- `ls_sink_stats` — Get total events, unprocessed count, and last-received timestamp
+
 ## Features
 
-- **Full API coverage** — All 17 LemonSqueezy API resources with 61 tools
+- **Full API coverage** — All 17 LemonSqueezy API resources with 61 tools, plus 3 bridge tools to an optional [@yawlabs/lemonsqueezy-webhook-sink](https://github.com/YawLabs/lemonsqueezy-webhook-sink) for webhook reconciliation
 - **JSON:API support** — Filtering, pagination, and relationship inclusion on all list/get operations
 - **Zero runtime dependencies** — Single bundled file for instant `npx` startup
 - **License API** — Activate, validate, and deactivate license keys without an API key
@@ -228,6 +235,8 @@ All configuration is via environment variables. Only `LEMONSQUEEZY_API_KEY` (or 
 | `LEMONSQUEEZY_DISABLE_CLASSES` | Comma-separated list of [authority classes](#authority-classes) to refuse outright. Any tool whose class is listed returns a `guardrail_block` before the API call is attempted. Example: `LEMONSQUEEZY_DISABLE_CLASSES=money,recurring,pii` lets an agent run reads but blocks refunds, subscription changes, and customer-record access. Unknown class names throw at server startup. |
 | `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS` | Per-class rolling rate limits, comma-separated. Each entry is `class:N`, `class:N/m`, or `class:N/h` (bare numbers default to per-minute). Example: `money:2/h,recurring:5/h,key:10/m`. Composes with `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` — both must pass. In-process per server instance. |
 | `LEMONSQUEEZY_LOG` | Structured-log verbosity to stderr. Set to `all` (or legacy `json`) to log every tool and HTTP call, `audit` to log only destructive-call audit entries plus errors (recommended for production), `error` to log only failures. Unset: no logs. Destructive calls are tagged `audit: true` and include their inputs. |
+| `LEMONSQUEEZY_SINK_URL` | Base URL of an optional [@yawlabs/lemonsqueezy-webhook-sink](https://github.com/YawLabs/lemonsqueezy-webhook-sink) instance (e.g. `https://webhooks.example.com`). Trailing slashes are stripped. Enables the `ls_sink_*` reconciliation tools below. Unset: the tools are still registered but return a "not configured" error when called. |
+| `LEMONSQUEEZY_SINK_ADMIN_TOKEN` | Bearer token for the sink's admin endpoints. Must match the sink's `WEBHOOK_SINK_ADMIN_TOKEN`. Required when `LEMONSQUEEZY_SINK_URL` is set; if the sink itself was started without an admin token, its admin endpoints return 404 and `ls_sink_*` calls surface that diagnostically. |
 
 ### Logging format
 

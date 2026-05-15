@@ -14,6 +14,7 @@ import { orderItemTools } from "./order-items.js";
 import { orderTools } from "./orders.js";
 import { priceTools } from "./prices.js";
 import { productTools } from "./products.js";
+import { sinkTools } from "./sink.js";
 import { storeTools } from "./stores.js";
 import { subscriptionInvoiceTools } from "./subscription-invoices.js";
 import { subscriptionItemTools } from "./subscription-items.js";
@@ -45,6 +46,7 @@ const allTools = [
   ...webhookTools,
   ...licenseTools,
   ...affiliateTools,
+  ...sinkTools,
 ];
 
 describe("Tool definitions", () => {
@@ -59,7 +61,7 @@ describe("Tool definitions", () => {
   });
 
   it("should have the expected total tool count", () => {
-    assert.equal(allTools.length, 61);
+    assert.equal(allTools.length, 64);
   });
 
   for (const tool of allTools) {
@@ -158,4 +160,5 @@ describe("Tool modules export correct counts", () => {
   it("webhookTools has 5 tools", () => assert.equal(webhookTools.length, 5));
   it("licenseTools has 3 tools", () => assert.equal(licenseTools.length, 3));
   it("affiliateTools has 2 tools", () => assert.equal(affiliateTools.length, 2));
+  it("sinkTools has 3 tools", () => assert.equal(sinkTools.length, 3));
 });
