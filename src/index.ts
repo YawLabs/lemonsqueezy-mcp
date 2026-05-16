@@ -47,8 +47,15 @@ if (subcommand === "version" || subcommand === "--version") {
 
 // Parse every guardrail env var up front so a typo'd LEMONSQUEEZY_DISABLE_CLASSES
 // or malformed LEMONSQUEEZY_RATE_LIMIT_PER_CLASS crashes boot rather than the
-// first tool call.
-loadGuardrailOptions();
+// first tool call. Catch the parse error and exit with just the message --
+// otherwise Node prints an uncaught-exception stack trace before the helpful
+// "LEMONSQUEEZY_X contains unknown class 'Y'" line operators actually need.
+try {
+  loadGuardrailOptions();
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
 
 // The array holds tools with heterogeneous strict input types
 // (every tool has a different Zod schema). `RegisterableTool<any>`

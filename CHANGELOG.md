@@ -2,6 +2,12 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.10.3] -- 2026-05-16
+
+### Fixed
+
+- **Startup env-var parse errors now print a single line, not a stack trace.** The 0.10.1 eager-parse of `LEMONSQUEEZY_DISABLE_CLASSES` / `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS` / `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` threw an uncaught `Error`, so operators saw Node's stack dump before the helpful message. `src/index.ts` now wraps the call in try/catch and exits 1 with just the error message -- e.g. `LEMONSQUEEZY_DISABLE_CLASSES contains unknown class "mony" (expected one of: read, pii, mutate, money, recurring, key, webhook)`.
+
 ## [0.10.2] -- 2026-05-16
 
 ### Changed
