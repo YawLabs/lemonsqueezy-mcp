@@ -144,7 +144,19 @@ elif [ "$IS_CI" = "true" ]; then
   fail "package.json is at v${CURRENT_VERSION} but tag is v${VERSION}. Tag without prior version bump on main -- refusing to publish a version that disagrees with the source."
 else
   npm version "$VERSION" --no-git-tag-version
-  info "Version bumped"
+  info "package.json bumped"
+  # Mirror release.yml's jq step at commit time so the committed server.json
+  # always matches the published version. Without this, a manual recovery
+  # `mcp-publisher publish` (outside CI) would push a stale registry version.
+  node -e "
+    const fs = require('fs');
+    const f = 'server.json';
+    const s = JSON.parse(fs.readFileSync(f, 'utf8'));
+    s.version = '$VERSION';
+    s.packages[0].version = '$VERSION';
+    fs.writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
+  "
+  info "server.json bumped"
 fi
 
 # =============================================================================
@@ -154,8 +166,8 @@ step 4 "Commit, tag, and push"
 if [ "$IS_CI" = "true" ]; then
   info "CI mode -- skipping commit/tag/push (tag $GITHUB_REF_NAME already triggered this run)"
 else
-  if [ -n "$(git status --porcelain package.json package-lock.json 2>/dev/null)" ]; then
-    git add package.json package-lock.json
+  if [ -n "$(git status --porcelain package.json package-lock.json server.json 2>/dev/null)" ]; then
+    git add package.json package-lock.json server.json
     git commit -m "v${VERSION}"
     info "Committed version bump"
   else

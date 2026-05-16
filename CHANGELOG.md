@@ -2,6 +2,17 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.10.5] -- 2026-05-16
+
+### Changed
+
+- **`release.sh` step 3 now bumps `server.json` alongside `package.json` and stages it in the release commit.** Previously `server.json` was treated as a derived artifact only -- `release.yml` ran a `jq` step at publish time to sync `version` and `packages[0].version` from `$GITHUB_REF_NAME`, but the committed file was never updated, so a manual `mcp-publisher publish` outside CI would push a stale registry version. The new `node -e` step mirrors the CI `jq` so the committed source matches the latest published version on every release. No `jq` dependency added (`node` was already a release-flow prereq).
+- **`server.json` resynced to 0.10.4** to clear the existing drift (file was last touched at 0.10.0; releases 0.10.1 through 0.10.4 all relied on CI's publish-time `jq` rewrite). 0.10.5 going forward, the workstation release path keeps it current automatically.
+
+### Docs
+
+- **CHANGELOG footers backfilled** for v0.10.0 through v0.10.4. Adds the missing `[X.Y.Z]: .../compare/...` lines per Keep a Changelog and points `[Unreleased]` at `v0.10.4...HEAD` (previously stuck at `v0.9.3...HEAD`).
+
 ## [0.10.4] -- 2026-05-16
 
 ### Changed
@@ -307,7 +318,13 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.5...HEAD
+[0.10.5]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.4...v0.10.5
+[0.10.4]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.3...v0.10.4
+[0.10.3]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.2...v0.10.3
+[0.10.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.1...v0.10.2
+[0.10.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.3...v0.10.0
 [0.9.3]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.9.0...v0.9.1
