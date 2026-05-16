@@ -35,6 +35,7 @@ import type { ToolHandlerResponse } from "../wrapper.js";
 
 const SINK_REPO_URL = "https://github.com/YawLabs/lemonsqueezy-webhook-sink";
 const FETCH_TIMEOUT_MS = 10_000;
+const MAX_BODY_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 interface SinkConfig {
   url: string;
@@ -160,6 +161,12 @@ async function sinkRequest(
   // gracefully rather than throwing on JSON.parse("").
   const text = await res.text();
   if (!text.trim()) return { ok: true, data: {} };
+  if (text.length > MAX_BODY_SIZE_BYTES) {
+    return {
+      ok: false,
+      error: `Sink response body too large: ${text.length} bytes exceeds ${MAX_BODY_SIZE_BYTES} byte limit`,
+    };
+  }
   try {
     return { ok: true, data: JSON.parse(text) };
   } catch (err) {

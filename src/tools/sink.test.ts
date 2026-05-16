@@ -263,4 +263,14 @@ describe("Sink tools error paths", () => {
     assert.equal(result.ok, false);
     assert.match(result.error ?? "", /invalid JSON/);
   });
+
+  it("response body exceeding size limit surfaces as a clear error", async () => {
+    const oversized = "x".repeat(11 * 1024 * 1024); // 11 MB, exceeds 10 MB limit
+    stubFetch({ status: 200, text: oversized });
+    const tool = findTool("ls_sink_stats");
+    const result = await tool.handler({});
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /body too large/);
+    assert.match(result.error ?? "", /11534336/); // 11 * 1024 * 1024
+  });
 });
