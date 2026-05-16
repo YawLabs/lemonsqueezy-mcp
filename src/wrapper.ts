@@ -20,7 +20,7 @@ import {
   GuardrailError,
   isDestructiveCall,
 } from "./guardrails.js";
-import { logEvent } from "./logger.js";
+import { logEvent, wouldLogToolCall } from "./logger.js";
 import { redactSecrets } from "./redact.js";
 
 export type McpToolResult = {
@@ -149,19 +149,28 @@ export function createToolHandler<TInput = unknown>(
       // are non-destructive), but redactSecrets() runs unconditionally
       // as defense-in-depth -- if a tool with secret-bearing inputs is
       // ever flipped to destructiveHint:true, the audit log won't leak.
-      const successEntry = {
-        event: "tool_call" as const,
-        tool: tool.name,
-        status: response.ok ? ("ok" as const) : ("error" as const),
-        latency_ms,
-        request_id: response.requestId,
-        error: response.ok ? undefined : response.error,
-        audit: isDestructive ? true : undefined,
-        inputs: isDestructive ? redactSecrets(input) : undefined,
-      };
-      logEvent(successEntry);
-      if (isDestructive) {
-        pushAuditEntry({ ts: new Date().toISOString(), ...successEntry });
+      //
+      // Hot-path note: the most common call is a non-destructive read at
+      // LEMONSQUEEZY_LOG unset ("off"). Skip the entry literal in that case
+      // so reads don't pay the allocation for an entry no consumer wants.
+      // Destructive calls always build the entry because the audit-buffer
+      // push is independent of the log level.
+      const wouldLog = wouldLogToolCall({ isDestructive, isError: !response.ok });
+      if (wouldLog || isDestructive) {
+        const successEntry = {
+          event: "tool_call" as const,
+          tool: tool.name,
+          status: response.ok ? ("ok" as const) : ("error" as const),
+          latency_ms,
+          request_id: response.requestId,
+          error: response.ok ? undefined : response.error,
+          audit: isDestructive ? true : undefined,
+          inputs: isDestructive ? redactSecrets(input) : undefined,
+        };
+        if (wouldLog) logEvent(successEntry);
+        if (isDestructive) {
+          pushAuditEntry({ ts: new Date().toISOString(), ...successEntry });
+        }
       }
 
       if (!response.ok) {
@@ -183,18 +192,24 @@ export function createToolHandler<TInput = unknown>(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const latency_ms = Date.now() - start;
-      const errorEntry = {
-        event: "tool_call" as const,
-        tool: tool.name,
-        status: err instanceof GuardrailError ? ("guardrail_block" as const) : ("exception" as const),
-        latency_ms,
-        error: message,
-        audit: isDestructive ? true : undefined,
-        inputs: isDestructive ? redactSecrets(input) : undefined,
-      };
-      logEvent(errorEntry);
-      if (isDestructive) {
-        pushAuditEntry({ ts: new Date().toISOString(), ...errorEntry });
+      // Same wouldLog gate as the success branch -- at LEMONSQUEEZY_LOG=off
+      // a non-destructive throw still skips the literal. (The audit-buffer
+      // push is still required for destructive throws regardless.)
+      const wouldLog = wouldLogToolCall({ isDestructive, isError: true });
+      if (wouldLog || isDestructive) {
+        const errorEntry = {
+          event: "tool_call" as const,
+          tool: tool.name,
+          status: err instanceof GuardrailError ? ("guardrail_block" as const) : ("exception" as const),
+          latency_ms,
+          error: message,
+          audit: isDestructive ? true : undefined,
+          inputs: isDestructive ? redactSecrets(input) : undefined,
+        };
+        if (wouldLog) logEvent(errorEntry);
+        if (isDestructive) {
+          pushAuditEntry({ ts: new Date().toISOString(), ...errorEntry });
+        }
       }
       return {
         content: [{ type: "text" as const, text: `Error: ${message}` }],

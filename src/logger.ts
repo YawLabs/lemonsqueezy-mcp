@@ -54,6 +54,27 @@ function shouldLog(entry: LogEntry, level: LogLevel): boolean {
   }
 }
 
+/**
+ * Cheap predicate so the wrapper can skip building the entry literal when the
+ * current LEMONSQUEEZY_LOG level would discard it. Equivalent to `shouldLog`
+ * applied to a `tool_call` entry whose `audit` flag matches `isDestructive`
+ * and whose `error`/`status` matches `isError`. Hot path: every successful
+ * read call goes through here.
+ */
+export function wouldLogToolCall(opts: { isDestructive: boolean; isError: boolean }): boolean {
+  const level = getLogLevel();
+  switch (level) {
+    case "off":
+      return false;
+    case "all":
+      return true;
+    case "audit":
+      return opts.isDestructive || opts.isError;
+    case "error":
+      return opts.isError;
+  }
+}
+
 // Defensive coercion to a plain string. Used to flatten `entry.error` in the
 // fallback path -- in the rare case the upstream propagated a non-string
 // `error` field (an Error wrapped in a `cause` chain, or a string with a

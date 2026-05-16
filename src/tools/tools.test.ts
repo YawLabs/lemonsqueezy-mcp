@@ -138,6 +138,35 @@ describe("ls_update_license_key predicate", () => {
   });
 });
 
+describe("Allowlist gate alignment", () => {
+  // The wrapper's storeId allowlist gate (`checkStoreScopedToolInput` in
+  // `guardrails.ts`) keys off the literal input field name "storeId". A
+  // list tool whose filterMap maps a different input field (e.g. "store",
+  // "store_id") to filter[store_id] would silently bypass
+  // LEMONSQUEEZY_ALLOWED_STORE_IDS. This invariant locks the convention
+  // so a future tool addition can't open that gap.
+  it("every list tool that produces filter[store_id]= uses 'storeId' as the input field name", () => {
+    for (const tool of allTools) {
+      const handler = tool.handler as unknown as { filterMap?: Record<string, string> };
+      const filterMap = handler.filterMap;
+      if (!filterMap) continue;
+      const storeIdInputKey = Object.entries(filterMap).find(([, apiKey]) => apiKey === "store_id")?.[0];
+      if (!storeIdInputKey) continue;
+      assert.equal(
+        storeIdInputKey,
+        "storeId",
+        `Tool ${tool.name} maps input "${storeIdInputKey}" -> filter[store_id]. ` +
+          `The allowlist gate keys off the literal "storeId" input field; renaming silently bypasses LEMONSQUEEZY_ALLOWED_STORE_IDS.`,
+      );
+      const shape = (tool.inputSchema as { shape: Record<string, unknown> }).shape;
+      assert.ok(
+        "storeId" in shape,
+        `Tool ${tool.name} produces filter[store_id]= but has no "storeId" input field; allowlist gate would silently skip.`,
+      );
+    }
+  });
+});
+
 describe("Tool modules export correct counts", () => {
   it("userTools has 1 tool", () => assert.equal(userTools.length, 1));
   it("storeTools has 2 tools", () => assert.equal(storeTools.length, 2));

@@ -2,6 +2,16 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.10.7] -- 2026-05-16
+
+### Security
+
+- **Allowlist-bypass surface closed at the test layer.** `checkStoreScopedToolInput` in `src/wrapper.ts` enforces `LEMONSQUEEZY_ALLOWED_STORE_IDS` by reading the literal input field name `storeId` from the tool's Zod shape. Today every list tool that filters by store happens to use that name, but the convention wasn't asserted anywhere -- a future tool whose filterMap mapped a differently-named input (e.g. `store`) to `filter[store_id]` would silently bypass the allowlist. `src/api.ts` `listHandler` now exposes its `filterMap` on the returned handler, and `src/tools/tools.test.ts` adds an invariant that fails CI for any drift between the filter key (`store_id`) and the input field name (`storeId`).
+
+### Changed
+
+- **`wrapper.ts` skips the success/error entry literal when no consumer wants it.** A non-destructive read at `LEMONSQUEEZY_LOG` unset (i.e. "off") previously built a full audit entry on every call, then `logEvent` discarded it inside its level check. Now the wrapper consults `wouldLogToolCall({ isDestructive, isError })` -- a new export from `src/logger.ts` -- before allocating. Destructive calls always build the entry because the audit-buffer push is independent of the log level. No observable behavior change; saves a small object literal per non-destructive read on the most common configuration.
+
 ## [0.10.6] -- 2026-05-16
 
 ### Security
@@ -333,7 +343,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.6...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.7...HEAD
+[0.10.7]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.6...v0.10.7
 [0.10.6]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.5...v0.10.6
 [0.10.5]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.4...v0.10.5
 [0.10.4]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.3...v0.10.4

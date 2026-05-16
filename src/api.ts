@@ -323,9 +323,21 @@ export function getHandler(endpoint: string, idField: string) {
   };
 }
 
+/**
+ * Async handler with the originating filterMap attached so callers (and
+ * `tools.test.ts`) can introspect the input-key -> filter-key mapping
+ * without re-parsing the source. Load-bearing for the allowlist-alignment
+ * invariant in `tools.test.ts` -- the wrapper's storeId allowlist gate
+ * keys off the input field name `storeId`, so any list tool that maps a
+ * different input field to filter[store_id] would silently bypass it.
+ */
+export type ListHandler = ((input: Record<string, unknown>) => Promise<ApiResponse>) & {
+  filterMap: Readonly<Record<string, string>>;
+};
+
 /** Create a handler for GET /endpoint with optional filters, include, and pagination. */
-export function listHandler(endpoint: string, filterMap: Record<string, string> = {}) {
-  return async (input: Record<string, unknown>) => {
+export function listHandler(endpoint: string, filterMap: Record<string, string> = {}): ListHandler {
+  const handler = async (input: Record<string, unknown>): Promise<ApiResponse> => {
     const filter: Record<string, string> = {};
     for (const [inputKey, apiKey] of Object.entries(filterMap)) {
       const val = input[inputKey];
@@ -338,6 +350,7 @@ export function listHandler(endpoint: string, filterMap: Record<string, string> 
     });
     return apiGet(`${endpoint}${query}`);
   };
+  return Object.assign(handler, { filterMap });
 }
 
 export async function apiGet<T = unknown>(path: string): Promise<ApiResponse<T>> {
