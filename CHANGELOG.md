@@ -2,6 +2,12 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.10.2] -- 2026-05-16
+
+### Changed
+
+- **`CHANGELOG.md` is now included in the published npm tarball.** Added it to `package.json`'s `files` array. npm auto-includes `README` and `LICENSE` regardless of the allowlist, but `CHANGELOG.md` is not in that auto-include set -- so prior versions shipped without it, and an operator inspecting `node_modules/@yawlabs/lemonsqueezy-mcp` had no in-package changelog. The README and bundle are unchanged; tarball size grows by ~29 kB.
+
 ## [0.10.1] -- 2026-05-16
 
 ### Fixed

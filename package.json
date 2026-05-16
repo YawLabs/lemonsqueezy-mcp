@@ -1,6 +1,6 @@
 {
   "name": "@yawlabs/lemonsqueezy-mcp",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "mcpName": "io.github.YawLabs/lemonsqueezy-mcp",
   "description": "LemonSqueezy MCP server for managing your store from AI assistants",
   "license": "MIT",
@@ -25,7 +25,8 @@
     "lemonsqueezy-mcp": "dist/index.js"
   },
   "files": [
-    "dist/index.js"
+    "dist/index.js",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc && node build.mjs",
