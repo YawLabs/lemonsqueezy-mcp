@@ -2,6 +2,12 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.10.4] -- 2026-05-16
+
+### Changed
+
+- **GitHub release notes now come from `CHANGELOG.md`, not just commit subjects.** `release.sh` step 6 extracts the section between `## [X.Y.Z] -- ...` and the next `## [` and passes that body to `gh release create --notes`. Falls back to the previous `git log --oneline` behavior if no matching section is present (or the section is whitespace-only), then to "Initial release". Removes the long-standing pattern of single-line "- vX.Y.Z" release bodies on the GitHub releases page (every 0.10.x release until this one).
+
 ## [0.10.3] -- 2026-05-16
 
 ### Fixed

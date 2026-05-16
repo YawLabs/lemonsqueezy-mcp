@@ -223,16 +223,36 @@ step 6 "Create GitHub release"
 if gh release view "v${VERSION}" >/dev/null 2>&1; then
   info "GitHub release v${VERSION} already exists -- skipping"
 else
-  PREV_TAG=$(git tag --sort=-v:refname | grep -A1 "^v${VERSION}$" | tail -1)
-  if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "v${VERSION}" ]; then
-    CHANGELOG=$(git log --oneline "${PREV_TAG}..v${VERSION}" --no-decorate | sed 's/^[a-f0-9]* /- /')
+  # Prefer the section from CHANGELOG.md for richer GH release notes -- the
+  # body between `## [VERSION] -- ...` and the next `## [`, with the heading
+  # itself dropped (the release page already shows the version as the title).
+  # Falls back to commit subjects, then "Initial release", if no section is
+  # present or it's whitespace-only.
+  RELEASE_NOTES=""
+  if [ -f CHANGELOG.md ]; then
+    # index() avoids regex bracket-escaping headaches that awk warns about.
+    RELEASE_NOTES=$(awk -v target="## [${VERSION}]" '
+      index($0, target) == 1 { found=1; next }
+      found && index($0, "## [") == 1 { exit }
+      found { print }
+    ' CHANGELOG.md)
+  fi
+
+  if [ -z "$(printf '%s' "$RELEASE_NOTES" | tr -d '[:space:]')" ]; then
+    PREV_TAG=$(git tag --sort=-v:refname | grep -A1 "^v${VERSION}$" | tail -1)
+    if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "v${VERSION}" ]; then
+      RELEASE_NOTES=$(git log --oneline "${PREV_TAG}..v${VERSION}" --no-decorate | sed 's/^[a-f0-9]* /- /')
+      info "No CHANGELOG.md section for v${VERSION} -- using commit subjects"
+    else
+      RELEASE_NOTES="Initial release"
+    fi
   else
-    CHANGELOG="Initial release"
+    info "Using CHANGELOG.md section for v${VERSION}"
   fi
 
   gh release create "v${VERSION}" \
     --title "v${VERSION}" \
-    --notes "$CHANGELOG"
+    --notes "$RELEASE_NOTES"
   info "GitHub release created"
 fi
 
