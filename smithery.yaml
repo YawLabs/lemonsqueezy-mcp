@@ -21,11 +21,13 @@ startCommand:
         type: string
         description: Comma-separated allowlist of store IDs. When set, the server refuses operations targeting any store ID outside the list.
       lemonsqueezyMaxRefundAmountCents:
-        type: string
+        type: integer
+        minimum: 1
         description: Cap on a single refund amount, in cents. Refund calls above this fail before reaching the API.
       lemonsqueezyDestructiveRateLimit:
-        type: string
-        description: Positive integer. Maximum destructive tool calls allowed per 60-second rolling window (per server instance). Example "5". Combines with lemonsqueezyRateLimitPerClass; both must pass.
+        type: integer
+        minimum: 1
+        description: Maximum destructive tool calls allowed per 60-second rolling window (per server instance). Example 5. Combines with lemonsqueezyRateLimitPerClass; both must pass.
       lemonsqueezyDisableClasses:
         type: string
         description: Comma-separated list of authority classes to refuse outright. Valid classes are read, pii, mutate, money, recurring, key, webhook. Example "money,recurring,pii" lets reads through but blocks refunds, subscription changes, and customer-record access. Unknown class names cause server startup to fail.
@@ -57,8 +59,8 @@ startCommand:
         if (config.lemonsqueezyApiKeyCommand) env.LEMONSQUEEZY_API_KEY_COMMAND = config.lemonsqueezyApiKeyCommand;
         if (config.lemonsqueezyTestApiKey) env.LEMONSQUEEZY_TEST_API_KEY = config.lemonsqueezyTestApiKey;
         if (config.lemonsqueezyAllowedStoreIds) env.LEMONSQUEEZY_ALLOWED_STORE_IDS = config.lemonsqueezyAllowedStoreIds;
-        if (config.lemonsqueezyMaxRefundAmountCents) env.LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS = config.lemonsqueezyMaxRefundAmountCents;
-        if (config.lemonsqueezyDestructiveRateLimit) env.LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT = config.lemonsqueezyDestructiveRateLimit;
+        if (config.lemonsqueezyMaxRefundAmountCents != null) env.LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS = String(config.lemonsqueezyMaxRefundAmountCents);
+        if (config.lemonsqueezyDestructiveRateLimit != null) env.LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT = String(config.lemonsqueezyDestructiveRateLimit);
         if (config.lemonsqueezyDisableClasses) env.LEMONSQUEEZY_DISABLE_CLASSES = config.lemonsqueezyDisableClasses;
         if (config.lemonsqueezyRateLimitPerClass) env.LEMONSQUEEZY_RATE_LIMIT_PER_CLASS = config.lemonsqueezyRateLimitPerClass;
         if (config.lemonsqueezyLog) env.LEMONSQUEEZY_LOG = config.lemonsqueezyLog;

@@ -2,6 +2,21 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.10.6] -- 2026-05-16
+
+### Security
+
+- **Sink response body size cap.** `sinkRequest` in `src/tools/sink.ts` now rejects responses larger than 10 MB before calling `JSON.parse`, defending the in-process MCP server against CPU exhaustion from a malicious or misconfigured sink (`Sink response body too large: X bytes exceeds Y byte limit`). The 10 s `AbortSignal` timeout already bounded wall-clock; the size cap bounds the parse cost as well.
+
+### Changed
+
+- **`buildQuery` page-param values are URL-encoded.** Brought `page[number]` / `page[size]` in line with the `include` / `filter` branches (which already wrapped values in `encodeURIComponent`). Today the Zod schemas constrain both to integers so the encoding is a no-op, but if pagination ever widens to accept a string cursor the values are already safely escaped.
+- **`smithery.yaml` numeric fields are typed `integer`.** `lemonsqueezyMaxRefundAmountCents` and `lemonsqueezyDestructiveRateLimit` now declare `type: integer, minimum: 1` (were `type: string`). Smithery's config UI now renders a number input with client-side validation. The `commandFunction` `String(...)` coerces back to env-var form, and the truthy check switched to `!= null` so the (admittedly nonsensical) value `0` would not be silently dropped.
+
+### Docs
+
+- **`CHANGELOG.md` em-dashes normalized to ASCII `--`** throughout v0.9.3 and earlier sections. Brings older entries in line with the v0.10.x style and avoids the Windows-terminal mojibake risk called out in the Yaw Mode discipline.
+
 ## [0.10.5] -- 2026-05-16
 
 ### Changed
@@ -48,17 +63,17 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
   - `ls_sink_stats` -- total, unprocessed, last-received timestamp
 - `LEMONSQUEEZY_SINK_URL` and `LEMONSQUEEZY_SINK_ADMIN_TOKEN` env vars to configure the bridge. Tools are always registered for `tools/list` discovery; missing env vars surface at call time as a structured "not configured" error (with a pointer to the sink repo), not a registration-time failure. 10s fetch timeout via `AbortSignal.timeout()`; auth failures (401), admin-disabled (404), and transport errors each get a tailored diagnostic.
 
-## [0.9.3] — 2026-05-15
+## [0.9.3] -- 2026-05-15
 
 ### Fixed
 
 - `server.json` rewritten against the current registry schema (`2025-12-11`). The 0.9.2 release's MCP-Registry publish step failed validation against the live schema: `description` exceeded the 100-char cap, the package field was `registry_type` (snake_case) where the schema expects `registryType` (camelCase), and the required `packages[].transport` field was missing. 0.9.2 is live on npm and GitHub but did not reach the Official MCP Registry. 0.9.3 is the first release that should land on `registry.modelcontextprotocol.io`.
 
-## [0.9.2] — 2026-05-15
+## [0.9.2] -- 2026-05-15
 
 ### Added
 
-- `.github/workflows/release.yml` now publishes to the [Official MCP Registry](https://registry.modelcontextprotocol.io) after the post-publish smoke test passes. Authentication is via GitHub OIDC — the `id-token: write` permission already enabled for npm provenance also satisfies the registry's auth; no `MCP_*` secret is required. The namespace `io.github.YawLabs/*` is authorized purely from the OIDC `repository_owner` claim, so anyone outside the YawLabs GitHub org cannot publish under it. A `jq` step overwrites `server.json`'s `version` (and `packages[0].version`) from the pushed tag, so a forgotten manual bump on `server.json` no longer publishes a stale version to the registry. Downstream registries (Glama, PulseMCP, mcpservers.org) that auto-source from the official registry now pick up each `@yawlabs/lemonsqueezy-mcp` release without a manual mcp-publisher run.
+- `.github/workflows/release.yml` now publishes to the [Official MCP Registry](https://registry.modelcontextprotocol.io) after the post-publish smoke test passes. Authentication is via GitHub OIDC -- the `id-token: write` permission already enabled for npm provenance also satisfies the registry's auth; no `MCP_*` secret is required. The namespace `io.github.YawLabs/*` is authorized purely from the OIDC `repository_owner` claim, so anyone outside the YawLabs GitHub org cannot publish under it. A `jq` step overwrites `server.json`'s `version` (and `packages[0].version`) from the pushed tag, so a forgotten manual bump on `server.json` no longer publishes a stale version to the registry. Downstream registries (Glama, PulseMCP, mcpservers.org) that auto-source from the official registry now pick up each `@yawlabs/lemonsqueezy-mcp` release without a manual mcp-publisher run.
 
 ### Docs
 
@@ -66,24 +81,24 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 - README Development section documents `npm run gen:containerfile` / `npm run check:containerfile` so a contributor editing `Dockerfile` knows to regenerate.
 - README Releasing section notes that the local `./release.sh` path does not publish to the Official MCP Registry (CI-only) and gives the manual `mcp-publisher` commands as the fallback when a release is cut without CI.
 
-## [0.9.1] — 2026-05-15
+## [0.9.1] -- 2026-05-15
 
 ### Docs
 
-- README "Features" list now mentions authority-class disable, per-class rate limits, and the audit-log MCP Resource — previously omitted under the umbrella "Guardrails" bullet despite being documented in detail later in the file.
+- README "Features" list now mentions authority-class disable, per-class rate limits, and the audit-log MCP Resource -- previously omitted under the umbrella "Guardrails" bullet despite being documented in detail later in the file.
 - README description of `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` now lists every destructive trigger the runtime classifier counts: `ls_update_license_key` calls that change `activationLimit` (added in 0.7.1), `ls_update_customer` calls with `status: "archived"`, plus the previously-documented pause/plan-switch and `disabled: true` paths.
 - README qualifies the "issue a scoped LemonSqueezy API key" recommendation. LS API keys are account-wide; the qualifier directs readers to LS team-membership scoping where it exists and treats the env-var guardrails as the primary control surface for what LS itself can't express (per-class rate ceilings).
 
 ### Changed
 
 - `audit-buffer.ts` overflow path is now O(1) (circular index) instead of O(N) (`Array.splice(0, …)`). No observable behavior change; the buffer caps at 1000 entries and presents the same most-recent-first read order.
-- `src/index.ts` split — the registered MCP tool wrapper and the audit-log Resource read-callback now live in `src/wrapper.ts` so unit tests can exercise them end-to-end without starting the stdio MCP server. `src/index.ts` becomes a thin entry point that imports `createToolHandler` and `readAuditLogResource` from the new module. No observable behavior change in the published binary.
+- `src/index.ts` split -- the registered MCP tool wrapper and the audit-log Resource read-callback now live in `src/wrapper.ts` so unit tests can exercise them end-to-end without starting the stdio MCP server. `src/index.ts` becomes a thin entry point that imports `createToolHandler` and `readAuditLogResource` from the new module. No observable behavior change in the published binary.
 - `secret.ts` cache fingerprint no longer embeds the raw API key. The fingerprint is now a SHA-256 digest of `mode:value`, preserving the mid-process change-detection semantics while removing the only in-memory copy of the key outside the `cached.key` field itself.
 - `redact.ts` now also masks any string value matching the LemonSqueezy bearer-token shape (`eyJ…`-style JWT prefix), even when the key name is innocuous. Closes the future-feature gap where a destructive tool accepts a `customData`/`metadata` object whose values happen to contain a key. Also covers additional credential / PII key names (`private_key`, `pin`, `ssn`, `social_security_number`, `credit_card`, `card_number`, `cvv`, `cvc`).
 
 ### Fixed
 
-- Smithery one-click install now exposes `LEMONSQUEEZY_DISABLE_CLASSES` and `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS` — the two env vars added in 0.9.0. Previously a Smithery user had to hand-edit the spawned process env to reach the authority-class layer.
+- Smithery one-click install now exposes `LEMONSQUEEZY_DISABLE_CLASSES` and `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS` -- the two env vars added in 0.9.0. Previously a Smithery user had to hand-edit the spawned process env to reach the authority-class layer.
 - Smithery description for `lemonsqueezyDestructiveRateLimit` now states the actual format (a positive integer interpreted as calls per 60-second rolling window) instead of "Format depends on server defaults."
 - `logger.ts` JSON-stringify fallback now coerces `entry.error` to a plain string before the second serialization pass, so a non-string error field (an `Error` with a circular `cause` chain, or an object with a throwing `toJSON`) no longer skips both write attempts and degrades to silence. Tests cover the case.
 - `integration.test.ts` `before()` hook now clears `LEMONSQUEEZY_API_KEY_COMMAND` and `LEMONSQUEEZY_TEST_API_KEY` before setting `LEMONSQUEEZY_API_KEY` from the test key, and resets the secret cache. Previously a developer with a vault-backed `LEMONSQUEEZY_API_KEY_COMMAND` would silently run the integration suite against their dev key, because the command takes precedence over the bare env var in `secret.ts`.
@@ -91,54 +106,54 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ### Added
 
-- `src/wrapper.ts` — extracted production module containing `createToolHandler` (the MCP tool registration wrapper) and `readAuditLogResource` (the audit-log Resource read-callback). Same logic that previously lived inline in `src/index.ts`; now reusable and testable.
-- `src/wrapper.test.ts` — end-to-end test that exercises the registered MCP tool wrapper from `src/wrapper.ts`. Covers the order in which `checkClassAllowed` / `checkClassRateLimit` / `checkDestructiveRateLimit` / `checkStoreScopedToolInput` fire, the destructive-call audit pipeline (logger + ring buffer), the audit-log MCP Resource (`lemonsqueezy://audit-log`), and the predicate-destructive routing (e.g. `ls_update_license_key` with `activationLimit`). Previously every handler test invoked `tool.handler(input)` directly and the wrapper was untested.
+- `src/wrapper.ts` -- extracted production module containing `createToolHandler` (the MCP tool registration wrapper) and `readAuditLogResource` (the audit-log Resource read-callback). Same logic that previously lived inline in `src/index.ts`; now reusable and testable.
+- `src/wrapper.test.ts` -- end-to-end test that exercises the registered MCP tool wrapper from `src/wrapper.ts`. Covers the order in which `checkClassAllowed` / `checkClassRateLimit` / `checkDestructiveRateLimit` / `checkStoreScopedToolInput` fire, the destructive-call audit pipeline (logger + ring buffer), the audit-log MCP Resource (`lemonsqueezy://audit-log`), and the predicate-destructive routing (e.g. `ls_update_license_key` with `activationLimit`). Previously every handler test invoked `tool.handler(input)` directly and the wrapper was untested.
 
-## [0.9.0] — 2026-05-14
+## [0.9.0] -- 2026-05-14
 
 ### Added
 
 - **Authority classes.** Every tool now declares an `authorityClass` describing the kind of business authority a caller needs to invoke it (`read`, `pii`, `mutate`, `money`, `recurring`, `key`, `webhook`). The class is separate from the existing destructive/read-only annotation.
-- `LEMONSQUEEZY_DISABLE_CLASSES` — comma-separated list of classes to refuse outright. Example: `money,recurring,pii` lets an agent run reads but blocks refunds, subscription changes, and customer-record access. Unknown class names throw at server startup.
-- `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS` — per-class rolling rate limits with a DSL. Each entry is `class:N`, `class:N/m`, or `class:N/h`. Example: `money:2/h,recurring:5/h,key:10/m`. Composes with `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` — both must pass. No LemonSqueezy permission can express "max 2 refunds per hour"; this is the only place that policy can live.
-- `deprecate.yml` workflow — CI-driven `npm deprecate` via `workflow_dispatch`, using the org-level `NPM_TOKEN` and the same `release-npm` concurrency group as `release.yml`. No local WebAuthn session needed for a deprecate run.
-- `server.json` + `mcpName` field in `package.json` — prepares the repo for the Official MCP Registry. Downstream registries (Glama, PulseMCP, mcpservers.org) auto-source from the official registry, so a single publish reaches the ecosystem.
-- README "Add to mcp.hosting" install button — one-click sync of the server into [mcp.hosting](https://mcp.hosting) so it propagates to every MCP client a user has configured.
+- `LEMONSQUEEZY_DISABLE_CLASSES` -- comma-separated list of classes to refuse outright. Example: `money,recurring,pii` lets an agent run reads but blocks refunds, subscription changes, and customer-record access. Unknown class names throw at server startup.
+- `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS` -- per-class rolling rate limits with a DSL. Each entry is `class:N`, `class:N/m`, or `class:N/h`. Example: `money:2/h,recurring:5/h,key:10/m`. Composes with `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` -- both must pass. No LemonSqueezy permission can express "max 2 refunds per hour"; this is the only place that policy can live.
+- `deprecate.yml` workflow -- CI-driven `npm deprecate` via `workflow_dispatch`, using the org-level `NPM_TOKEN` and the same `release-npm` concurrency group as `release.yml`. No local WebAuthn session needed for a deprecate run.
+- `server.json` + `mcpName` field in `package.json` -- prepares the repo for the Official MCP Registry. Downstream registries (Glama, PulseMCP, mcpservers.org) auto-source from the official registry, so a single publish reaches the ecosystem.
+- README "Add to mcp.hosting" install button -- one-click sync of the server into [mcp.hosting](https://mcp.hosting) so it propagates to every MCP client a user has configured.
 
 ### Changed
 
 - README "Authority classes" section reframed to lead with the authoritative control (a scoped LemonSqueezy API key) and present the env vars as defense in depth. `RATE_LIMIT_PER_CLASS` is called out as load-bearing (no LS access-control equivalent); `DISABLE_CLASSES` is positioned as a fast deploy-time alternative when the cost of a key rotation outweighs the strength gained.
 - `release.yml` smoke test now retries the actual `npx --version` call (30 × 10s) instead of gating on `npm view`. The two paths hit different CDN caches; `npm view` can clear while `npx` still ETARGETs on a stale mirror. Mirrors the pattern in `aws-mcp` / `tailscale-mcp`.
 
-## [0.8.1] — 2026-05-13
+## [0.8.1] -- 2026-05-13
 
 ### Fixed
 
 - `handlers.test.ts` isolation: CI's integration job sets `LEMONSQUEEZY_TEST_API_KEY` from a repo secret. With the priority chain introduced in 0.8.0 (`COMMAND` > `TEST_API_KEY` > `API_KEY`), that injected value took precedence over the in-test stub and broke three handler tests (`ls_get_user` bearer-token assertion plus the missing/empty-key cases). The suite-level `before()` now saves and clears all three source env vars, restores them in `after()`, and resets the secret cache. Reproducible locally by running with `LEMONSQUEEZY_TEST_API_KEY=ci-stub-key LEMONSQUEEZY_API_KEY="" npm test`.
 
-## [0.8.0] — 2026-05-13
+## [0.8.0] -- 2026-05-13
 
-Distribution-readiness pass — closes feature gaps against other OSS LemonSqueezy MCP servers ahead of broader distribution.
+Distribution-readiness pass -- closes feature gaps against other OSS LemonSqueezy MCP servers ahead of broader distribution.
 
 ### Added
 
 - **Smithery one-click install.** `smithery.yaml` declares the stdio start command + JSON Schema for env vars; Smithery generates the config UX. Install via `npx -y @smithery/cli install @yawlabs/lemonsqueezy-mcp --client claude`.
 - **Container images.** `Dockerfile` + `Containerfile` + `.dockerignore`. Multi-stage build on `node:20-alpine`, runs as the non-root `node` user, copies only `dist/index.js` into the runtime image. Stdio transport; no port exposed. Pass env via `-e LEMONSQUEEZY_*`.
-- `LEMONSQUEEZY_TEST_API_KEY` — separate test-mode key. Priority sits between `LEMONSQUEEZY_API_KEY_COMMAND` (highest) and `LEMONSQUEEZY_API_KEY` (lowest), so a developer can point the server at a sandbox store without unsetting their production key. A one-shot stderr `test_mode` notice fires on first activation per process.
-- **MCP Resource `lemonsqueezy://audit-log`** — bounded ring buffer (last 1000 entries, most-recent-first) of destructive-call audit entries, exposed as `application/x-ndjson`. Lets clients without stderr access retrieve the audit trail structurally. Secret-shaped input fields are already redacted before they reach the buffer.
+- `LEMONSQUEEZY_TEST_API_KEY` -- separate test-mode key. Priority sits between `LEMONSQUEEZY_API_KEY_COMMAND` (highest) and `LEMONSQUEEZY_API_KEY` (lowest), so a developer can point the server at a sandbox store without unsetting their production key. A one-shot stderr `test_mode` notice fires on first activation per process.
+- **MCP Resource `lemonsqueezy://audit-log`** -- bounded ring buffer (last 1000 entries, most-recent-first) of destructive-call audit entries, exposed as `application/x-ndjson`. Lets clients without stderr access retrieve the audit trail structurally. Secret-shaped input fields are already redacted before they reach the buffer.
 
 ### Changed
 
 - Dev-dependency audit warnings cleared via `npm audit fix`. Runtime bundle is unaffected (zero runtime deps).
 
-## [0.7.1] — 2026-05-13
+## [0.7.1] -- 2026-05-13
 
 Hardening pass on the v0.4.0 guardrails after observing realistic agent failure modes.
 
 ### Added
 
 - **Retry deadline.** `OVERALL_DEADLINE_MS=90s` ceiling on total wall clock across retries. The timeout error reports actual elapsed and attempt count (`Request timed out after Xs (N attempts)`) instead of the per-attempt budget. The loop stops on 5xx/429/timeout once the deadline is reached rather than starting a new attempt or sleeping past it.
-- **Audit redaction (`src/redact.ts`).** Masks values of secret-shaped keys (`secret`, `password`, `token`, `api[_-]?key`, `bearer`, `authorization`, `signing[_-]?secret` — case-insensitive, whole-word) before the entry reaches the audit log. Anchored regex so business identifiers (`licenseKey`, `instanceId`, `storeId`) are preserved. Cycle-safe via `WeakSet` with a 32-depth cap. Defense in depth — no destructive tool today carries a secret-typed input, but flipping any webhook tool to destructive would otherwise leak its signing secret.
+- **Audit redaction (`src/redact.ts`).** Masks values of secret-shaped keys (`secret`, `password`, `token`, `api[_-]?key`, `bearer`, `authorization`, `signing[_-]?secret` -- case-insensitive, whole-word) before the entry reaches the audit log. Anchored regex so business identifiers (`licenseKey`, `instanceId`, `storeId`) are preserved. Cycle-safe via `WeakSet` with a 32-depth cap. Defense in depth -- no destructive tool today carries a secret-typed input, but flipping any webhook tool to destructive would otherwise leak its signing secret.
 - **`requiredFilters` scoping.** When `LEMONSQUEEZY_ALLOWED_STORE_IDS` is active, list tools that lack a `storeId` field must specify at least one parent filter (orderId, productId, variantId, etc.). Closes the silent-no-op gap on `ls_list_files` / `ls_list_prices` / `ls_list_variants` / `ls_list_order_items` / `ls_list_subscription_items` / `ls_list_usage_records` / `ls_list_discount_redemptions` / `ls_list_license_key_instances`. Each affected tool description flags the cross-store consideration. `ls_list_affiliates` has no meaningful parent filter and is description-only.
 
 ### Changed
@@ -146,11 +161,11 @@ Hardening pass on the v0.4.0 guardrails after observing realistic agent failure 
 - `ls_update_license_key` is now classified as destructive whenever `activationLimit` changes, not just when `disabled: true`. Shrinking the limit can revoke access and the input alone doesn't reveal shrink-vs-grow direction.
 - `ls_create_checkout` email validation tightened to `.email().max(320)` to match `ls_create_customer` (was `max(10000)` with no shape check).
 
-## [0.7.0] — 2026-05-06
+## [0.7.0] -- 2026-05-06
 
 ### Added
 
-- `LEMONSQUEEZY_LOG=audit|error|all` — fine-grained log levels for long-running deployments. `audit` keeps destructive-call entries plus errors and drops successful reads (recommended for production where log volume matters over weeks). `error` keeps only failures. `all` is the verbose default. `json` is retained as a backwards-compat alias for `all`.
+- `LEMONSQUEEZY_LOG=audit|error|all` -- fine-grained log levels for long-running deployments. `audit` keeps destructive-call entries plus errors and drops successful reads (recommended for production where log volume matters over weeks). `error` keeps only failures. `all` is the verbose default. `json` is retained as a backwards-compat alias for `all`.
 
 ### Changed
 
@@ -161,24 +176,24 @@ Hardening pass on the v0.4.0 guardrails after observing realistic agent failure 
 
 ### Fixed
 
-- `release.sh` annotated tags (`git tag -a`) — `git push --follow-tags` silently skips lightweight tags. Pre-0.7.0, the release commit could push without the tag, leaving CI release unfired. Caught by review before any failed run.
-- `release.sh` idempotency check now queries `@yawlabs/<pkg>@${VERSION}` specifically rather than the package's `latest` dist-tag. The bare query returned whichever version is latest on the registry, so an out-of-band higher version made the script try to re-publish the current one and fail with "cannot publish over previously published version." The versioned form returns the version when it exists and empty otherwise — correct idempotency semantics.
+- `release.sh` annotated tags (`git tag -a`) -- `git push --follow-tags` silently skips lightweight tags. Pre-0.7.0, the release commit could push without the tag, leaving CI release unfired. Caught by review before any failed run.
+- `release.sh` idempotency check now queries `@yawlabs/<pkg>@${VERSION}` specifically rather than the package's `latest` dist-tag. The bare query returned whichever version is latest on the registry, so an out-of-band higher version made the script try to re-publish the current one and fail with "cannot publish over previously published version." The versioned form returns the version when it exists and empty otherwise -- correct idempotency semantics.
 - `release.sh` push now uses `--follow-tags` instead of `--tags` so stale local tags don't ride along (`--tags` pushes every local tag).
 - `release.yml` concurrency group is now a literal `release-npm` (workflow-scoped); previously `release-${{ github.ref }}` evaluated to per-tag groups and back-to-back tag pushes would race on `npm publish`.
-- `ci.yml` no longer runs a redundant explicit `npm run build` step — `npm test` is `npm run build && node --test dist/...` for this dist-based repo, so the explicit step was building twice per matrix cell for zero signal.
+- `ci.yml` no longer runs a redundant explicit `npm run build` step -- `npm test` is `npm run build && node --test dist/...` for this dist-based repo, so the explicit step was building twice per matrix cell for zero signal.
 
 ### Restored
 
 - `CODEOWNERS` and `dependabot.yml` (dropped along with the workflows in 0.6.0; restored when the workflows came back in 0.6.1). Routes review requests to `@jeffyaw` and bumps npm deps weekly / github-actions deps monthly.
 
-## [0.6.2] — 2026-05-04
+## [0.6.2] -- 2026-05-04
 
 ### Changed
 
 - `release.yml` now runs a post-publish smoke test that fetches the just-published tarball via `npx -y @yawlabs/lemonsqueezy-mcp@<version> --version` and asserts the binary executes and prints the expected version. Catches packaging regressions (missing bin shebang, broken `files` entry, bad esbuild output) before they reach real users.
 - `release.sh` step 7 now verifies that CI publishes carry a sigstore provenance attestation. A missing attestation in CI mode is a soft warning; local publishes legitimately skip provenance.
 
-## [0.6.1] — 2026-05-04
+## [0.6.1] -- 2026-05-04
 
 ### Changed
 
@@ -192,7 +207,7 @@ Hardening pass on the v0.4.0 guardrails after observing realistic agent failure 
 - `release.sh` `npm publish` retry only fires on EOTP/EAUTH/OTP messages. Other failures (duplicate-version E403, packaging errors) bail immediately instead of wasting 60s in the retry loop.
 - `package.json` `prepublishOnly` trimmed to `npm run build`. `release.sh` already runs lint + tests before publishing in both modes, so the embedded test run was doubling the CI work per release.
 
-## [0.6.0] — 2026-04-24
+## [0.6.0] -- 2026-04-24
 
 ### Changed
 
@@ -210,18 +225,18 @@ Hardening pass on the v0.4.0 guardrails after observing realistic agent failure 
 
 ### Removed
 
-- All of `.github/` (workflows, dependabot, CODEOWNERS). There is no CI — `release.sh` is the only supported release path.
+- All of `.github/` (workflows, dependabot, CODEOWNERS). There is no CI -- `release.sh` is the only supported release path.
 - `test:ci` npm script.
 
 ### Docs
 
 - README documents the local release flow and the one-time `npm login` / `gh auth login` setup.
-- README clarifies `LEMONSQUEEZY_ALLOWED_STORE_IDS` semantics — list filters now required when the allowlist is set; tools with no `storeId` field at all remain ungated, so pair with the refund cap and rate limit.
+- README clarifies `LEMONSQUEEZY_ALLOWED_STORE_IDS` semantics -- list filters now required when the allowlist is set; tools with no `storeId` field at all remain ungated, so pair with the refund cap and rate limit.
 - README notes that `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` counts include `ls_update_license_key` with `disabled: true`.
 - `SEMVER.md` points at `npm run test:integration` for upstream-drift detection instead of the removed nightly workflow.
 - `CLAUDE.md` and `CONTRIBUTING.md` updated to reference the local script and Biome-on-review instead of CI checks.
 
-## [0.5.0] — 2026-04-23
+## [0.5.0] -- 2026-04-23
 
 ### Changed
 
@@ -238,7 +253,7 @@ Hardening pass on the v0.4.0 guardrails after observing realistic agent failure 
 
 - README tool count corrected from 59 to 61 (affiliate tools from 0.3.0 plus `ls_refund_subscription_invoice` weren't reflected in the total).
 
-## [0.4.1] — 2026-04-20
+## [0.4.1] -- 2026-04-20
 
 ### Security
 
@@ -248,23 +263,23 @@ Hardening pass on the v0.4.0 guardrails after observing realistic agent failure 
 
 - README links to `@yawlabs/lemonsqueezy-webhook-sink` from the webhook-reconciliation callout.
 
-## [0.4.0] — 2026-04-20
+## [0.4.0] -- 2026-04-20
 
 Hardening pass for unattended automation against live billing flows.
 
 ### Added
 
 - **Guardrails.** Opt-in controls evaluated in a single dispatcher pre-check:
-  - `LEMONSQUEEZY_ALLOWED_STORE_IDS` — allowlist enforced on every tool call that names a store.
-  - `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` — per-call cap on `ls_refund_order` to prevent runaway agents from issuing large refunds.
-  - `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` — rolling 60-second circuit breaker on destructive tool calls.
+  - `LEMONSQUEEZY_ALLOWED_STORE_IDS` -- allowlist enforced on every tool call that names a store.
+  - `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` -- per-call cap on `ls_refund_order` to prevent runaway agents from issuing large refunds.
+  - `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` -- rolling 60-second circuit breaker on destructive tool calls.
   All three default to unset → disabled, so existing integrations are unaffected until explicitly opted in.
 - **Retry layer** (`src/retry.ts`). Exponential backoff with jitter, capped at 4 attempts and 30s. Retries `429` always (honors `Retry-After`), `5xx` and transport errors only on idempotent methods (`GET`/`DELETE`). Non-idempotent writes fail fast.
 - **Secret loader** (`src/secret.ts`). `LEMONSQUEEZY_API_KEY_COMMAND` invokes an external command (vault CLI, 1Password, etc.) and caches the result for 1 hour. Lets credentials rotate without restarting the server.
 - **Structured logger** (`src/logger.ts`). Opt-in via `LEMONSQUEEZY_LOG=json`. Emits JSON lines to stderr (stdout stays reserved for MCP protocol). Destructive tool calls are tagged `audit: true` with redacted inputs.
 - **Request ID surfacing.** API error messages include upstream `X-Request-Id` when present, so support tickets can be traced.
 - **Read-only integration tests.** `npm run test:integration` hits a live LemonSqueezy store if `LEMONSQUEEZY_TEST_API_KEY` + `LEMONSQUEEZY_TEST_STORE_ID` are set; skips gracefully otherwise. Exercises `ls_get_user`, `ls_get_store`, `ls_list_products`, `ls_list_variants`, `ls_list_orders`, `ls_list_subscriptions`, and 404 error paths. Runs nightly via `.github/workflows/integration.yml`.
-- **`SEMVER.md`** — documents what counts as a breaking change for this package (tool names, required inputs, return shapes), and what explicitly does not (upstream API drift, internal module names).
+- **`SEMVER.md`** -- documents what counts as a breaking change for this package (tool names, required inputs, return shapes), and what explicitly does not (upstream API drift, internal module names).
 
 ### Changed
 
@@ -273,18 +288,18 @@ Hardening pass for unattended automation against live billing flows.
 ### Fixed
 
 - `parseRetryAfterMs` now correctly falls back to the default 1s when given a negative number like `"-3"` (previously `Date.parse("-3")` returned a finite value and produced a non-sensical delay).
-- Retry policy no longer retries `5xx` on `POST`/`PATCH`/`PUT` — prevents duplicate writes if a timeout is actually a slow success.
+- Retry policy no longer retries `5xx` on `POST`/`PATCH`/`PUT` -- prevents duplicate writes if a timeout is actually a slow success.
 
-## [0.3.0] — 2026-04-18
+## [0.3.0] -- 2026-04-18
 
 ### Added
 
 - Affiliate tools (`ls_list_affiliates`, `ls_get_affiliate`).
 - `429` retry with exponential backoff in the API client.
-- `SECURITY.md` — vulnerability disclosure policy.
-- `CONTRIBUTING.md` — contributor and AI-agent guidelines.
+- `SECURITY.md` -- vulnerability disclosure policy.
+- `CONTRIBUTING.md` -- contributor and AI-agent guidelines.
 
-## [0.2.1] — 2026-04-16
+## [0.2.1] -- 2026-04-16
 
 ### Changed
 
@@ -298,7 +313,7 @@ Hardening pass for unattended automation against live billing flows.
 
 - Error-path tests for every tool.
 
-## [0.2.0] — 2026-04-14
+## [0.2.0] -- 2026-04-14
 
 ### Added
 
@@ -308,17 +323,18 @@ Hardening pass for unattended automation against live billing flows.
 
 - `ls_generate_order_invoice` and `ls_generate_subscription_invoice` now hit the correct endpoints and handle the async invoice-generation response shape.
 
-## [0.1.1] — 2026-04-12
+## [0.1.1] -- 2026-04-12
 
 ### Added
 
 - Edge-case handler tests for fuller coverage across all 59 tools.
 
-## [0.1.0] — 2026-04-11
+## [0.1.0] -- 2026-04-11
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.5...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.6...HEAD
+[0.10.6]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.5...v0.10.6
 [0.10.5]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.4...v0.10.5
 [0.10.4]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.3...v0.10.4
 [0.10.3]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.2...v0.10.3

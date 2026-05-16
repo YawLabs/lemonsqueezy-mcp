@@ -64,11 +64,15 @@ export function buildQuery(params?: {
   }
 
   if (params.page) {
+    // encodeURIComponent matches the include/filter branches above. Today the
+    // Zod schemas constrain both fields to integers so the encoding is a
+    // no-op, but if pagination ever widens to accept a string cursor the
+    // values are already safely escaped.
     if (params.page.number !== undefined) {
-      parts.push(`page[number]=${params.page.number}`);
+      parts.push(`page[number]=${encodeURIComponent(String(params.page.number))}`);
     }
     if (params.page.size !== undefined) {
-      parts.push(`page[size]=${params.page.size}`);
+      parts.push(`page[size]=${encodeURIComponent(String(params.page.size))}`);
     }
   }
 
