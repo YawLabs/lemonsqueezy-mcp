@@ -206,6 +206,13 @@ export function isStoreAllowlistActive(): boolean {
   return loadOptions().allowedStoreIds !== null;
 }
 
+// Force-parse every guardrail env var so misconfiguration (typo'd class name,
+// non-numeric refund cap, malformed per-class rate-limit DSL) surfaces at
+// startup rather than on the first tool call hours later.
+export function loadGuardrailOptions(): void {
+  loadOptions();
+}
+
 type ScopableTool = {
   inputSchema: { shape: Record<string, unknown> };
   requiredFilters?: readonly string[];

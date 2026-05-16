@@ -2,6 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { loadGuardrailOptions } from "./guardrails.js";
 import { affiliateTools } from "./tools/affiliates.js";
 import { checkoutTools } from "./tools/checkouts.js";
 import { customerTools } from "./tools/customers.js";
@@ -43,6 +44,11 @@ if (subcommand === "version" || subcommand === "--version") {
 }
 
 // ─── No subcommand — start the MCP server ───
+
+// Parse every guardrail env var up front so a typo'd LEMONSQUEEZY_DISABLE_CLASSES
+// or malformed LEMONSQUEEZY_RATE_LIMIT_PER_CLASS crashes boot rather than the
+// first tool call.
+loadGuardrailOptions();
 
 // The array holds tools with heterogeneous strict input types
 // (every tool has a different Zod schema). `RegisterableTool<any>`

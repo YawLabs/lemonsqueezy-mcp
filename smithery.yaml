@@ -41,6 +41,12 @@ startCommand:
           - audit
           - all
           - json
+      lemonsqueezySinkUrl:
+        type: string
+        description: Base URL of an @yawlabs/lemonsqueezy-webhook-sink instance. When set, the ls_sink_* tools forward to it. Without this the sink bridge tools return "not configured".
+      lemonsqueezySinkAdminToken:
+        type: string
+        description: Bearer token used to authenticate to the webhook sink's admin endpoints. Required for the ls_sink_* tools to function.
   commandFunction:
     # Returns the CLI invocation that starts the MCP server on stdio.
     # Smithery validates the inbound config against configSchema before
@@ -56,6 +62,8 @@ startCommand:
         if (config.lemonsqueezyDisableClasses) env.LEMONSQUEEZY_DISABLE_CLASSES = config.lemonsqueezyDisableClasses;
         if (config.lemonsqueezyRateLimitPerClass) env.LEMONSQUEEZY_RATE_LIMIT_PER_CLASS = config.lemonsqueezyRateLimitPerClass;
         if (config.lemonsqueezyLog) env.LEMONSQUEEZY_LOG = config.lemonsqueezyLog;
+        if (config.lemonsqueezySinkUrl) env.LEMONSQUEEZY_SINK_URL = config.lemonsqueezySinkUrl;
+        if (config.lemonsqueezySinkAdminToken) env.LEMONSQUEEZY_SINK_ADMIN_TOKEN = config.lemonsqueezySinkAdminToken;
         return {
           command: 'npx',
           args: ['-y', '@yawlabs/lemonsqueezy-mcp'],

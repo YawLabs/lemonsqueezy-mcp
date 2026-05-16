@@ -2,6 +2,13 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.10.1] -- 2026-05-16
+
+### Fixed
+
+- **`smithery.yaml` now exposes the sink-bridge env vars.** Added `lemonsqueezySinkUrl` and `lemonsqueezySinkAdminToken` to `configSchema.properties` and forwarded them in `commandFunction`. Without this, Smithery-installed instances could not configure the 0.10.0 `ls_sink_*` tools and they always returned "not configured".
+- **Guardrail env vars are now parsed at server boot, not first call.** A new `loadGuardrailOptions()` export is invoked from `src/index.ts` before stdio connect, so a typo'd `LEMONSQUEEZY_DISABLE_CLASSES`, malformed `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS`, or non-numeric `LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS` crashes the process at startup. Previously the parse was lazy and a misconfigured deployment booted cleanly, passing liveness probes, and only surfaced the error on the first tool invocation.
+
 ## [0.10.0] -- 2026-05-15
 
 ### Added
