@@ -19,7 +19,13 @@ const originalFetch = globalThis.fetch;
  * don't post JSON, so we don't bother capturing request bodies here.
  */
 function stubFetch(
-  reply: { status?: number; body?: unknown; text?: string; throwError?: Error } = { status: 200, body: { ok: true } },
+  reply: {
+    status?: number;
+    body?: unknown;
+    text?: string;
+    throwError?: Error;
+    responseHeaders?: Record<string, string>;
+  } = { status: 200, body: { ok: true } },
 ) {
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -40,7 +46,7 @@ function stubFetch(
     const text = reply.text ?? (reply.body !== undefined ? JSON.stringify(reply.body) : "");
     return new Response(text, {
       status,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(reply.responseHeaders ?? {}) },
     });
   }) as typeof fetch;
 }
@@ -92,6 +98,21 @@ describe("sinkTools registration", () => {
       assert.ok(tool.inputSchema, `${tool.name} missing inputSchema`);
       assert.equal(typeof tool.handler, "function");
     }
+  });
+
+  // The wrapper routes rate-limit + audit-log buckets off authorityClass.
+  // A silent reclassification (read -> mutate or vice versa) would misroute
+  // sink traffic without failing any other test in the suite.
+  it("ls_sink_events_list and ls_sink_stats are authorityClass='read'", () => {
+    const list = sinkTools.find((t) => t.name === "ls_sink_events_list");
+    const stats = sinkTools.find((t) => t.name === "ls_sink_stats");
+    assert.equal(list?.authorityClass, "read");
+    assert.equal(stats?.authorityClass, "read");
+  });
+
+  it("ls_sink_event_mark_processed is authorityClass='mutate'", () => {
+    const mark = sinkTools.find((t) => t.name === "ls_sink_event_mark_processed");
+    assert.equal(mark?.authorityClass, "mutate");
   });
 });
 
@@ -272,5 +293,63 @@ describe("Sink tools error paths", () => {
     assert.equal(result.ok, false);
     assert.match(result.error ?? "", /body too large/);
     assert.match(result.error ?? "", /11534336/); // 11 * 1024 * 1024
+  });
+
+  it("2xx with a lying Content-Length still trips the post-read size guard", async () => {
+    // Belt-and-braces against a sink (or upstream proxy) that under-reports
+    // Content-Length. Pre-read guard sees 100 and lets the read proceed;
+    // the actual 11 MB body trips the post-read check at sink.ts:199.
+    const actualSize = 11 * 1024 * 1024;
+    stubFetch({
+      status: 200,
+      text: "x".repeat(actualSize),
+      responseHeaders: { "content-length": "100" },
+    });
+    const tool = findTool("ls_sink_stats");
+    const result = await tool.handler({});
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /body too large/);
+    assert.match(result.error ?? "", new RegExp(String(actualSize)));
+  });
+
+  it("2xx mid-stream body-read failure surfaces as a uniform error, not an unhandled throw", async () => {
+    // Real-world shape: socket reset partway through reading the body.
+    // The handler must not let the throw escape to the wrapper's catch-all;
+    // it must collapse to the same `{ ok: false, error }` shape every other
+    // failure in sinkRequest returns.
+    const erroringStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("partial"));
+        controller.error(new Error("socket reset mid-stream"));
+      },
+    });
+    globalThis.fetch = (async () =>
+      new Response(erroringStream, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+    const tool = findTool("ls_sink_stats");
+    const result = await tool.handler({});
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /body read failed/);
+    assert.match(result.error ?? "", /socket reset/);
+  });
+
+  it("4xx with oversized Content-Length surfaces both status code and size marker", async () => {
+    // Declared Content-Length disagrees with actual body length on purpose:
+    // exercises the pre-read size guard on the error branch without
+    // buffering 11 MB into the test process.
+    const declared = 11 * 1024 * 1024;
+    stubFetch({
+      status: 500,
+      text: "ignored",
+      responseHeaders: { "content-length": String(declared) },
+    });
+    const tool = findTool("ls_sink_stats");
+    const result = await tool.handler({});
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /500/);
+    assert.match(result.error ?? "", /body too large/);
+    assert.match(result.error ?? "", new RegExp(String(declared)));
   });
 });

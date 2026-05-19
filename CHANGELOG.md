@@ -2,6 +2,22 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.10.8] -- 2026-05-19
+
+### Security
+
+- **Sink response body size guard extended to the error branch.** `sinkRequest` in `src/tools/sink.ts` previously only size-checked 2xx response bodies; a misbehaving sink returning a giant 4xx/5xx body could still buffer the whole thing into memory before any limit fired. A new `readBodyOrSizeError` helper pre-checks `Content-Length` against the 10 MB cap and is applied to both the error and success branches. The post-read length check on the 2xx path is retained as belt-and-braces against a lying `Content-Length`.
+
+### Changed
+
+- **2xx body-read mid-stream failures now collapse to the uniform `{ ok: false, error }` shape.** Previously a socket reset partway through reading the body propagated as an exception out of `sinkRequest`, surfacing as a less-informative error via the wrapper's catch-all. The 2xx body read is now wrapped in a try/catch that returns `Sink response body read failed: <message>` -- consistent with every other failure mode in the function.
+- **`src/secret.ts` cache-hit branch tightened.** The test-mode cache-hit branch previously called `announceTestModeOnce()` redundantly (the flag is set on the first miss, so the cache-hit call was dead). Removed the call and the now-obsolete defensive comment.
+
+### Tests
+
+- **Sink coverage expanded** to pin `authorityClass` per tool (`read` for `ls_sink_events_list` / `ls_sink_stats`, `mutate` for `ls_sink_event_mark_processed`), 4xx-oversized-Content-Length, 2xx-lying-Content-Length, and 2xx mid-stream body-read failures. `stubFetch` gained an optional `responseHeaders` field so error-branch tests no longer override `globalThis.fetch` inline.
+- **`parseCommand` contract pinned** in `src/secret.test.ts` for the four tokenizer edges that the rest of the suite only touched by accident: unterminated quote, all-quotes-collapse-to-empty, quoted-args-with-spaces (both quote styles), and quote-then-bare-word concatenation. Also added a 64 KB `maxBuffer` overflow test that exercises the `execFile` `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` rewrap path.
+
 ## [0.10.7] -- 2026-05-16
 
 ### Security
@@ -343,7 +359,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.7...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.8...HEAD
+[0.10.8]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.7...v0.10.8
 [0.10.7]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.6...v0.10.7
 [0.10.6]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.5...v0.10.6
 [0.10.5]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.4...v0.10.5

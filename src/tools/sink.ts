@@ -71,6 +71,26 @@ function isToolHandlerResponse(value: SinkConfig | ToolHandlerResponse): value i
 }
 
 /**
+ * Read the response body, but reject up-front if the server-declared
+ * Content-Length exceeds MAX_BODY_SIZE_BYTES. Returning before `res.text()`
+ * is awaited means a misbehaving sink cannot OOM us with a single oversized
+ * response. A lying Content-Length still slips past, so the 2xx caller below
+ * also retains a post-read length check as belt-and-braces.
+ */
+async function readBodyOrSizeError(
+  res: Response,
+): Promise<{ ok: true; text: string } | { ok: false; declared: number }> {
+  const contentLength = res.headers.get("content-length");
+  if (contentLength) {
+    const declared = Number.parseInt(contentLength, 10);
+    if (Number.isFinite(declared) && declared > MAX_BODY_SIZE_BYTES) {
+      return { ok: false, declared };
+    }
+  }
+  return { ok: true, text: await res.text() };
+}
+
+/**
  * Build a path-plus-query string for the sink. Skips
  * undefined/null/empty entries so the resulting string never has trailing
  * `&` or `?` artifacts. Values are URL-encoded.
@@ -128,7 +148,15 @@ async function sinkRequest(
   if (!res.ok) {
     let body = "";
     try {
-      body = await res.text();
+      const readResult = await readBodyOrSizeError(res);
+      if (readResult.ok) {
+        body = readResult.text;
+      } else {
+        // Drop the oversized body rather than buffering it; the status code
+        // plus the size marker is enough for the agent to act on. The
+        // specific 401 / 404 branches below still fire on status alone.
+        body = `[body too large: ${readResult.declared} bytes exceeds ${MAX_BODY_SIZE_BYTES} byte limit]`;
+      }
     } catch {
       // ignore -- we'll fall through with empty body
     }
@@ -159,7 +187,25 @@ async function sinkRequest(
 
   // 200 with empty body is unexpected for this contract, but degrade
   // gracefully rather than throwing on JSON.parse("").
-  const text = await res.text();
+  //
+  // Wrap the body read in try/catch so a mid-stream socket reset surfaces as
+  // the same uniform `{ ok: false, error }` shape every other failure mode in
+  // this function returns -- without it, the throw escapes to the wrapper's
+  // catch-all and the agent sees a less-informative error.
+  let readResult: Awaited<ReturnType<typeof readBodyOrSizeError>>;
+  try {
+    readResult = await readBodyOrSizeError(res);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Sink response body read failed: ${message}` };
+  }
+  if (!readResult.ok) {
+    return {
+      ok: false,
+      error: `Sink response body too large: ${readResult.declared} bytes exceeds ${MAX_BODY_SIZE_BYTES} byte limit`,
+    };
+  }
+  const text = readResult.text;
   if (!text.trim()) return { ok: true, data: {} };
   if (text.length > MAX_BODY_SIZE_BYTES) {
     return {

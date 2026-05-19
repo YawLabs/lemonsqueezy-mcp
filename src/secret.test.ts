@@ -370,6 +370,56 @@ describe("loadApiKey", () => {
     assert.equal(fs.readFileSync(counterFile, "utf8"), "2");
   });
 
+  // The parseCommand tokenizer has a few error contracts and quoting subtleties
+  // that the rest of the suite only exercises by accident. These tests pin the
+  // contract so a regression in the tokenizer doesn't silently change what
+  // configuration shapes operators can use in LEMONSQUEEZY_API_KEY_COMMAND.
+  it("rejects an unterminated quote with a clear error message", async () => {
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `vault read -field='key path`;
+    await assert.rejects(loadApiKey(), /unterminated quote/);
+  });
+
+  it("rejects a command string whose tokens collapse to zero parts", async () => {
+    // `'' ''` trims to non-empty (passes the gate at loadApiKey) but
+    // tokenizes to two empty quoted strings, neither of which is pushed
+    // because `current` stays empty. parseCommand throws "is empty".
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `'' ''`;
+    await assert.rejects(loadApiKey(), /LEMONSQUEEZY_API_KEY_COMMAND is empty/);
+  });
+
+  it("preserves spaces inside double-quoted args", async () => {
+    const scriptPath = writeJsScript("console.log(process.argv[2]);");
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `"${process.execPath}" "${scriptPath}" "hello world"`;
+    const key = await loadApiKey();
+    assert.equal(key, "hello world");
+  });
+
+  it("preserves spaces inside single-quoted args", async () => {
+    const scriptPath = writeJsScript("console.log(process.argv[2]);");
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `'${process.execPath}' '${scriptPath}' 'hello world'`;
+    const key = await loadApiKey();
+    assert.equal(key, "hello world");
+  });
+
+  it("concatenates a quoted segment with a trailing bare-word", async () => {
+    // Tokenizer toggles quote mode but does not split on quote boundaries.
+    // `"hello"world` -> single arg `helloworld`. Documented behavior; pinning
+    // it so a future tokenizer rewrite doesn't silently change semantics.
+    const scriptPath = writeJsScript("console.log(process.argv[2]);");
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `"${process.execPath}" "${scriptPath}" "hello"world`;
+    const key = await loadApiKey();
+    assert.equal(key, "helloworld");
+  });
+
+  it("rejects when command output exceeds the 64 KB max buffer", async () => {
+    // execFile aborts with ERR_CHILD_PROCESS_STDIO_MAXBUFFER once the child
+    // writes past COMMAND_MAX_BUFFER. The handler re-wraps as a
+    // 'LEMONSQUEEZY_API_KEY_COMMAND failed: ...' error.
+    const scriptPath = writeJsScript(`process.stdout.write('x'.repeat(70 * 1024));`);
+    process.env.LEMONSQUEEZY_API_KEY_COMMAND = `"${process.execPath}" "${scriptPath}"`;
+    await assert.rejects(loadApiKey(), /LEMONSQUEEZY_API_KEY_COMMAND failed.*maxBuffer/i);
+  });
+
   it("test-mode fingerprint is a distinct hash from the same value under env mode", async () => {
     // Same raw value under different source modes must produce different
     // fingerprints so a switch from test to prod (or vice versa) invalidates

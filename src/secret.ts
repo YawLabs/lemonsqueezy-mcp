@@ -123,15 +123,7 @@ export async function loadApiKey(): Promise<string> {
   if (testRaw && testRaw.trim() !== "") {
     const fingerprint = fingerprintFor("test", testRaw);
     const hit = fromCache(fingerprint);
-    if (hit !== null) {
-      // Cache hit -- but if this is the first time the test source is being
-      // returned in this process (e.g. announcement was suppressed earlier
-      // somehow), still ensure the notice fires once. In practice the
-      // announce happens on the first miss below and this branch is a no-op
-      // because the flag is already set, but we guard it for safety.
-      announceTestModeOnce();
-      return hit;
-    }
+    if (hit !== null) return hit;
     announceTestModeOnce();
     intoCache(fingerprint, testRaw);
     return testRaw;
