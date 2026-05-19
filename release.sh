@@ -192,16 +192,47 @@ fi
 # Step 5: Publish to npm
 # =============================================================================
 step 5 "Publish to npm"
-
+# Three publish paths, picked by environment:
+#   1. IS_CI=true                    -> WE are CI. Do the publish (NODE_AUTH_TOKEN
+#                                       is set; --provenance for sigstore).
+#   2. IS_CI=false + release.yml     -> CI will publish on the tag we just pushed.
+#      exists with CI publish path      Watch `gh run watch` for that run and
+#                                       verify via `npm view`. Workstation MUST
+#                                       NOT also publish -- stale ~/.npmrc fails
+#                                       E404, valid one races CI for the same
+#                                       version. CI is authoritative.
+#   3. IS_CI=false + no CI publish   -> Workstation IS the publisher. Try locally
+#      path                             with EOTP retry for fresh WebAuthn sessions.
 PUBLISHED_VERSION=$(npm view "@yawlabs/lemonsqueezy-mcp@${VERSION}" version 2>/dev/null || echo "")
 if [ "$PUBLISHED_VERSION" = "$VERSION" ]; then
   info "v${VERSION} already published on npm -- skipping"
 elif [ "$IS_CI" = "true" ]; then
   npm publish --access public --provenance
   info "Published @yawlabs/lemonsqueezy-mcp@${VERSION} to npm (with provenance)"
+elif [ -f ".github/workflows/release.yml" ] && grep -q "npm publish\|NODE_AUTH_TOKEN\|release.sh" .github/workflows/release.yml; then
+  info "CI release.yml fires on v* tag push -- workstation hands off to CI"
+  TAG_SHA=$(git rev-parse "v${VERSION}^{}")
+  RUN_ID=""
+  for i in 1 2 3 4 5; do
+    RUN_ID=$(gh run list --workflow=Release --event=push --commit="$TAG_SHA" --limit=1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
+    [ -n "$RUN_ID" ] && break
+    sleep 2
+  done
+  if [ -z "$RUN_ID" ]; then
+    fail "Could not find Release workflow run for tag v${VERSION} (commit $TAG_SHA). Push may have failed or CI is misconfigured. Check 'gh run list --limit 5'."
+  fi
+  info "Watching CI Release run $RUN_ID"
+  gh run watch "$RUN_ID" --exit-status || fail "CI Release run $RUN_ID failed. See 'gh run view $RUN_ID --log-failed'."
+  for i in 1 2 3 4 5; do
+    NPM_NOW=$(npm view "@yawlabs/lemonsqueezy-mcp@${VERSION}" version 2>/dev/null || echo "")
+    [ "$NPM_NOW" = "$VERSION" ] && break
+    sleep 3
+  done
+  [ "$NPM_NOW" = "$VERSION" ] || fail "CI workflow succeeded but npm registry still shows '$NPM_NOW' for @yawlabs/lemonsqueezy-mcp@${VERSION}. Likely propagation lag -- retry verification in a minute."
+  info "Published @yawlabs/lemonsqueezy-mcp@${VERSION} via CI Release run $RUN_ID"
 else
-  # WebAuthn-fresh sessions sometimes EOTP on the first publish; retry up to
-  # 3 times with a 30s pause before giving up. See @yawlabs CLAUDE.md note.
+  # Workstation IS the publisher (no CI fallback). WebAuthn-fresh sessions
+  # sometimes EOTP on the first publish; retry up to 3 times with a 30s pause.
   # Only retry on EOTP/EAUTH/OTP -- a duplicate-version E403 or a packaging
   # error should fail fast, not waste 60s spinning.
   ATTEMPT=1
@@ -214,7 +245,7 @@ else
     fi
     if ! grep -qE 'EOTP|EAUTH|one-time password|OTP' "$PUBLISH_LOG"; then
       rm -f "$PUBLISH_LOG"
-      fail "npm publish failed (non-OTP error -- see output above)"
+      fail "npm publish failed (non-OTP error -- see output above). If E401/E404, your ~/.npmrc session is stale: run 'npm login --auth-type=web' and retry."
     fi
     rm -f "$PUBLISH_LOG"
     if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
@@ -224,7 +255,7 @@ else
     ATTEMPT=$((ATTEMPT + 1))
     sleep 30
   done
-  info "Published @yawlabs/lemonsqueezy-mcp@${VERSION} to npm"
+  info "Published @yawlabs/lemonsqueezy-mcp@${VERSION} to npm (workstation)"
 fi
 
 # =============================================================================
