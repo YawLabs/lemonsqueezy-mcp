@@ -2,7 +2,7 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
-## [Unreleased]
+## [0.10.10] -- 2026-05-22
 
 ### Security
 
@@ -386,6 +386,7 @@ Hardening pass for unattended automation against live billing flows.
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
 [Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.9...HEAD
+[0.10.10]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.9...v0.10.10
 [0.10.9]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.8...v0.10.9
 [0.10.8]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.7...v0.10.8
 [0.10.7]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.6...v0.10.7
