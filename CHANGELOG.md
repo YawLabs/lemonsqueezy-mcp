@@ -4,6 +4,10 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [0.10.10] -- 2026-05-22
 
+### Fixed
+
+- **`release.sh` no longer demands a workstation npm session for CI-publish flows.** The pre-flight `npm whoami` gate was a vestige of the local-only-deploy era (added in `53de878`); when CI publishing was restored in `e3ef87a` the gate was kept but the publish itself moved to CI's org-level `NPM_TOKEN`, so the workstation never uses that credential. Blocked the v0.10.10 release attempt with "npm is not authenticated" despite the intended publish path not needing it. Mirrors `tailscale-mcp/release.sh`, which never had the gate.
+
 ### Security
 
 - **Webhook `url` restricted to http/https schemes.** `ls_create_webhook` and `ls_update_webhook` previously accepted any string up to 10k chars; `z.string().url()` alone would have additionally accepted every URL-parseable scheme (`mailto:`, `file:`, `javascript:`, `ftp:`, `chrome-extension:`, ...). Anything non-http(s) stored as a webhook target is unreachable in the best case and an injection sink in the worst. The new `httpsUrlSchema` chains `.url()` with a `.refine()` enforcing `^https?://`, applied on both tools.
