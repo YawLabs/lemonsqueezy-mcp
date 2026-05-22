@@ -2,6 +2,12 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.10.9] -- 2026-05-22
+
+### Changed
+
+- **Webhook `events` array now requires at least one entry.** `ls_create_webhook` and `ls_update_webhook` previously let an empty array pass local Zod validation, so a no-op webhook configuration only failed at the LemonSqueezy API as a 422. The new `.min(1)` makes the rejection local with a clearer message; on update, the field stays optional but, when supplied, must be non-empty.
+
 ## [0.10.8] -- 2026-05-19
 
 ### Security
@@ -359,7 +365,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.8...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.9...HEAD
+[0.10.9]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.8...v0.10.9
 [0.10.8]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.7...v0.10.8
 [0.10.7]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.6...v0.10.7
 [0.10.6]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.5...v0.10.6

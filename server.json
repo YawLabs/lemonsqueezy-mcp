@@ -2,12 +2,12 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.YawLabs/lemonsqueezy-mcp",
   "description": "LemonSqueezy MCP server for managing your store from AI assistants",
-  "version": "0.10.8",
+  "version": "0.10.9",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@yawlabs/lemonsqueezy-mcp",
-      "version": "0.10.8",
+      "version": "0.10.9",
       "transport": {
         "type": "stdio"
       }
