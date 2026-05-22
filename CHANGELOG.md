@@ -2,6 +2,26 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [Unreleased]
+
+### Security
+
+- **Webhook `url` restricted to http/https schemes.** `ls_create_webhook` and `ls_update_webhook` previously accepted any string up to 10k chars; `z.string().url()` alone would have additionally accepted every URL-parseable scheme (`mailto:`, `file:`, `javascript:`, `ftp:`, `chrome-extension:`, ...). Anything non-http(s) stored as a webhook target is unreachable in the best case and an injection sink in the worst. The new `httpsUrlSchema` chains `.url()` with a `.refine()` enforcing `^https?://`, applied on both tools.
+- **`ls_update_webhook` secret rotation gated as destructive.** Rotating the signing secret silently breaks signature verification on every receiver until they redeploy with the new value. The tool now declares an `isDestructive` predicate flagging any `secret` change, routing those calls through `checkDestructiveRateLimit` + audit logging via the wrapper's existing duck-typed integration. URL and events changes stay on the regular path.
+
+### Changed
+
+- **`ls_update_webhook` rejects empty PATCH locally.** Calling with only `webhookId` and no fields to change previously sent an empty `attributes: {}` PATCH that the API would 422 with a less clear message. The handler now throws `"ls_update_webhook requires at least one of: url, events, secret"` before the round-trip.
+- **`ls_update_webhook` description warns about secret rotation.** The tool-level description now calls out that setting `secret` is destructive (rate-limited and audited) so LLM callers see the consequence before invoking.
+
+### Tests
+
+- **Regression coverage for the `events.min(1)` fix** (`f7374bd`): schema-rejection tests on both `ls_create_webhook` and `ls_update_webhook` lock in the empty-array rejection.
+- **URL validation coverage**: non-URL string rejection on both tools, four non-http(s) schemes (`mailto:`, `file:`, `javascript:`, `ftp:`) rejected on both tools, http and https explicit acceptance.
+- **`ls_update_webhook` predicate tests** mirror the `ls_update_license_key` shape: secret-only as destructive, url-only and events-only as non-destructive, empty input as non-destructive.
+- **`ls_update_webhook` URL-encoding** test added in parallel to the existing `ls_delete_webhook` coverage.
+- **Handler-side empty-PATCH rejection** test asserts the new error message.
+
 ## [0.10.9] -- 2026-05-22
 
 ### Changed

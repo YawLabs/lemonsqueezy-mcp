@@ -12,7 +12,7 @@ const httpsUrlSchema = z
   .string()
   .url()
   .max(10000)
-  .refine((u) => /^https?:\/\//i.test(u), { message: "url must use http or https" });
+  .refine((u) => /^https?:\/\//i.test(u), { message: "url must start with http:// or https://" });
 
 export const webhookTools = [
   {
