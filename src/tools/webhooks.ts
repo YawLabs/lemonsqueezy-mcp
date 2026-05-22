@@ -1,6 +1,19 @@
 import { z } from "zod";
 import { apiDelete, apiPatch, apiPost, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
 
+// z.string().url() accepts every URL-parseable scheme (mailto:, file:,
+// javascript:, ftp:, chrome-extension:, etc.). LemonSqueezy webhooks only
+// deliver over http/https; anything else stored as a webhook target is
+// unreachable in the best case and an injection sink in the worst. Refine
+// the URL to reject non-http(s) schemes at the schema level so callers get
+// a clear local error instead of an upstream 422 (or a silently-accepted
+// dead webhook).
+const httpsUrlSchema = z
+  .string()
+  .url()
+  .max(10000)
+  .refine((u) => /^https?:\/\//i.test(u), { message: "url must use http or https" });
+
 export const webhookTools = [
   {
     name: "ls_get_webhook",
@@ -53,7 +66,7 @@ export const webhookTools = [
     },
     inputSchema: z.object({
       storeId: lsIdSchema.describe("The store ID"),
-      url: z.string().url().max(10000).describe("The URL to send webhook events to (must be a valid http/https URL)"),
+      url: httpsUrlSchema.describe("The URL to send webhook events to (must be a valid http/https URL)"),
       events: z
         .array(z.string())
         .min(1)
@@ -97,12 +110,7 @@ export const webhookTools = [
     isDestructive: (input: Record<string, unknown>) => input.secret !== undefined,
     inputSchema: z.object({
       webhookId: lsIdSchema.describe("The webhook ID to update"),
-      url: z
-        .string()
-        .url()
-        .max(10000)
-        .optional()
-        .describe("New URL to send webhook events to (must be a valid http/https URL)"),
+      url: httpsUrlSchema.optional().describe("New URL to send webhook events to (must be a valid http/https URL)"),
       events: z.array(z.string()).min(1).optional().describe("Updated list of event types to subscribe to"),
       secret: z.string().min(6).max(40).optional().describe("New signing secret"),
     }),

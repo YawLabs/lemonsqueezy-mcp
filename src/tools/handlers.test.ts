@@ -1376,6 +1376,50 @@ describe("Schema validation", () => {
     const result = inputSchema(tool).safeParse({ webhookId: "1200", url: "not-a-url" });
     assert.equal(result.success, false);
   });
+
+  // z.string().url() accepts every URL-parseable scheme. LemonSqueezy
+  // only delivers webhooks over http/https; reject the rest at the
+  // schema level so they don't land as silently-dead webhooks.
+  for (const badScheme of ["mailto:foo@bar.com", "file:///etc/passwd", "javascript:alert(1)", "ftp://example.com/x"]) {
+    it(`ls_create_webhook rejects ${badScheme.split(":")[0]}: URL scheme`, () => {
+      const tool = findTool(webhookTools, "ls_create_webhook");
+      const result = inputSchema(tool).safeParse({
+        storeId: "1",
+        url: badScheme,
+        events: ["order_created"],
+        secret: "abcdef",
+      });
+      assert.equal(result.success, false);
+    });
+
+    it(`ls_update_webhook rejects ${badScheme.split(":")[0]}: URL scheme`, () => {
+      const tool = findTool(webhookTools, "ls_update_webhook");
+      const result = inputSchema(tool).safeParse({ webhookId: "1200", url: badScheme });
+      assert.equal(result.success, false);
+    });
+  }
+
+  it("ls_create_webhook accepts an http URL", () => {
+    const tool = findTool(webhookTools, "ls_create_webhook");
+    const result = inputSchema(tool).safeParse({
+      storeId: "1",
+      url: "http://example.com/hook",
+      events: ["order_created"],
+      secret: "abcdef",
+    });
+    assert.equal(result.success, true);
+  });
+
+  it("ls_create_webhook accepts an https URL", () => {
+    const tool = findTool(webhookTools, "ls_create_webhook");
+    const result = inputSchema(tool).safeParse({
+      storeId: "1",
+      url: "https://example.com/hook",
+      events: ["order_created"],
+      secret: "abcdef",
+    });
+    assert.equal(result.success, true);
+  });
 });
 
 // ─── Auth-failure cache invalidation ───
