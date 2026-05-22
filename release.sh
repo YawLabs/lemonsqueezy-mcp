@@ -74,7 +74,12 @@ command -v npm  >/dev/null || fail "npm not installed"
 if [ "$IS_CI" != "true" ]; then
   command -v gh >/dev/null || fail "gh not installed (https://cli.github.com)"
   gh auth status >/dev/null 2>&1 || fail "gh is not authenticated. Run: gh auth login"
-  npm whoami >/dev/null 2>&1     || fail "npm is not authenticated. Run: npm login --auth-type=web"
+  # No `npm whoami` gate: CI publishes via the org-level NPM_TOKEN
+  # secret on tag push (see step 5's CI-handoff branch). The workstation
+  # never authenticates to npm on this code path. The check was a vestige
+  # of the local-only-deploy era (added in 53de878, predates the CI
+  # restoration in e3ef87a) and blocked otherwise-clean releases on a
+  # credential that's never used.
 
   CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
   if [ "$CURRENT_BRANCH" != "main" ]; then
