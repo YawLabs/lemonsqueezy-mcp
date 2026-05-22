@@ -56,6 +56,7 @@ export const webhookTools = [
       url: z.string().max(10000).describe("The URL to send webhook events to"),
       events: z
         .array(z.string())
+        .min(1)
         .describe(
           "Event types to subscribe to (e.g. ['order_created', 'subscription_created', 'subscription_updated', 'subscription_cancelled', 'subscription_payment_success', 'subscription_payment_failed', 'license_key_created'])",
         ),
@@ -91,7 +92,7 @@ export const webhookTools = [
     inputSchema: z.object({
       webhookId: lsIdSchema.describe("The webhook ID to update"),
       url: z.string().max(10000).optional().describe("New URL to send webhook events to"),
-      events: z.array(z.string()).optional().describe("Updated list of event types to subscribe to"),
+      events: z.array(z.string()).min(1).optional().describe("Updated list of event types to subscribe to"),
       secret: z.string().min(6).max(40).optional().describe("New signing secret"),
     }),
     handler: async (input: { webhookId: string; url?: string; events?: string[]; secret?: string }) => {
