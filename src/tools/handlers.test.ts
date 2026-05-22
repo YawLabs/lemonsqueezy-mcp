@@ -854,6 +854,11 @@ describe("Webhook handlers", () => {
     assert.equal(lastRequest!.method, "DELETE");
     assert.equal(lastRequest!.url, `${BASE}/webhooks/1200`);
   });
+
+  it("ls_update_webhook rejects an update with no fields to change", async () => {
+    const tool = findTool(webhookTools, "ls_update_webhook");
+    await assert.rejects(() => tool.handler({ webhookId: "1200" }), /at least one of: url, events, secret/);
+  });
 });
 
 // ─── Licenses (License API — uses licenseRequest, not apiGet/apiPost) ───
@@ -1228,6 +1233,13 @@ describe("Path segment encoding", () => {
     assert.equal(lastRequest!.method, "DELETE");
     assert.equal(lastRequest!.url, `${BASE}/webhooks/12%2F00`);
   });
+
+  it("ls_update_webhook URL-encodes the webhook ID in the path", async () => {
+    const tool = findTool(webhookTools, "ls_update_webhook");
+    await tool.handler({ webhookId: "12/00", url: "https://example.com/hook" });
+    assert.equal(lastRequest!.method, "PATCH");
+    assert.equal(lastRequest!.url, `${BASE}/webhooks/12%2F00`);
+  });
 });
 
 // ─── Schema validation ───
@@ -1326,6 +1338,43 @@ describe("Schema validation", () => {
     const tool = findTool(customerTools, "ls_update_customer");
     const result = inputSchema(tool).safeParse({ customerId: "99", name: "New Name" });
     assert.equal(result.success, true);
+  });
+
+  // Locks in the fix from f7374bd: an empty events array used to pass local
+  // validation and only got rejected upstream as a 422. The schema-level
+  // .min(1) turns it into a clearer local validation error.
+  it("ls_create_webhook rejects an empty events array", () => {
+    const tool = findTool(webhookTools, "ls_create_webhook");
+    const result = inputSchema(tool).safeParse({
+      storeId: "1",
+      url: "https://example.com/hook",
+      events: [],
+      secret: "abcdef",
+    });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_update_webhook rejects an empty events array", () => {
+    const tool = findTool(webhookTools, "ls_update_webhook");
+    const result = inputSchema(tool).safeParse({ webhookId: "1200", events: [] });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_create_webhook rejects a non-URL string in url", () => {
+    const tool = findTool(webhookTools, "ls_create_webhook");
+    const result = inputSchema(tool).safeParse({
+      storeId: "1",
+      url: "not-a-url",
+      events: ["order_created"],
+      secret: "abcdef",
+    });
+    assert.equal(result.success, false);
+  });
+
+  it("ls_update_webhook rejects a non-URL string in url", () => {
+    const tool = findTool(webhookTools, "ls_update_webhook");
+    const result = inputSchema(tool).safeParse({ webhookId: "1200", url: "not-a-url" });
+    assert.equal(result.success, false);
   });
 });
 

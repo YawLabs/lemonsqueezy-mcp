@@ -53,7 +53,7 @@ export const webhookTools = [
     },
     inputSchema: z.object({
       storeId: lsIdSchema.describe("The store ID"),
-      url: z.string().max(10000).describe("The URL to send webhook events to"),
+      url: z.string().url().max(10000).describe("The URL to send webhook events to (must be a valid http/https URL)"),
       events: z
         .array(z.string())
         .min(1)
@@ -81,7 +81,8 @@ export const webhookTools = [
   {
     name: "ls_update_webhook",
     authorityClass: "webhook" as const,
-    description: "Update an existing webhook's URL, events, or secret.",
+    description:
+      "Update an existing webhook's URL, events, or secret. Setting `secret` rotates the signing secret and breaks signature verification on the receiver until they update their copy -- this is treated as destructive (rate-limited and audited).",
     annotations: {
       title: "Update webhook",
       readOnlyHint: false,
@@ -89,9 +90,19 @@ export const webhookTools = [
       idempotentHint: true,
       openWorldHint: true,
     },
+    // Rotating the signing secret silently breaks signature verification on
+    // every receiver until they redeploy with the new value. URL and events
+    // changes are observable on the next event but don't break anything in
+    // flight, so they stay on the regular path.
+    isDestructive: (input: Record<string, unknown>) => input.secret !== undefined,
     inputSchema: z.object({
       webhookId: lsIdSchema.describe("The webhook ID to update"),
-      url: z.string().max(10000).optional().describe("New URL to send webhook events to"),
+      url: z
+        .string()
+        .url()
+        .max(10000)
+        .optional()
+        .describe("New URL to send webhook events to (must be a valid http/https URL)"),
       events: z.array(z.string()).min(1).optional().describe("Updated list of event types to subscribe to"),
       secret: z.string().min(6).max(40).optional().describe("New signing secret"),
     }),
@@ -100,6 +111,13 @@ export const webhookTools = [
       if (input.url !== undefined) attributes.url = input.url;
       if (input.events !== undefined) attributes.events = input.events;
       if (input.secret !== undefined) attributes.secret = input.secret;
+
+      // An empty PATCH is a meaningless call that the API would 422 with a
+      // less clear message. Reject locally so the caller sees what they did
+      // wrong before a round-trip.
+      if (Object.keys(attributes).length === 0) {
+        throw new Error("ls_update_webhook requires at least one of: url, events, secret");
+      }
 
       return apiPatch(`/webhooks/${encodePath(input.webhookId)}`, {
         data: {

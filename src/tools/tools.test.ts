@@ -138,6 +138,33 @@ describe("ls_update_license_key predicate", () => {
   });
 });
 
+describe("ls_update_webhook predicate", () => {
+  const tool = webhookTools.find((t) => t.name === "ls_update_webhook") as
+    | { isDestructive?: (input: Record<string, unknown>) => boolean }
+    | undefined;
+
+  it("should expose an isDestructive predicate", () => {
+    assert.ok(tool, "ls_update_webhook tool not found");
+    assert.equal(typeof tool?.isDestructive, "function");
+  });
+
+  it("treats a secret change as destructive", () => {
+    assert.equal(tool?.isDestructive?.({ secret: "new-secret" }), true);
+  });
+
+  it("treats a url-only change as non-destructive", () => {
+    assert.equal(tool?.isDestructive?.({ url: "https://new.example.com/hook" }), false);
+  });
+
+  it("treats an events-only change as non-destructive", () => {
+    assert.equal(tool?.isDestructive?.({ events: ["order_created"] }), false);
+  });
+
+  it("treats an empty input as non-destructive", () => {
+    assert.equal(tool?.isDestructive?.({}), false);
+  });
+});
+
 describe("Allowlist gate alignment", () => {
   // The wrapper's storeId allowlist gate (`checkStoreScopedToolInput` in
   // `guardrails.ts`) keys off the literal input field name "storeId". A
