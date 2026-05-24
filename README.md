@@ -9,7 +9,7 @@ One click adds this to your [mcp.hosting](https://mcp.hosting) account so it syn
 ## Quick start
 
 ```bash
-npx @yawlabs/lemonsqueezy-mcp
+npx -y @yawlabs/lemonsqueezy-mcp@latest
 ```
 
 Or one-click install via Smithery:
@@ -73,7 +73,7 @@ Add to your MCP config:
   "mcpServers": {
     "lemonsqueezy": {
       "command": "npx",
-      "args": ["-y", "@yawlabs/lemonsqueezy-mcp"],
+      "args": ["-y", "@yawlabs/lemonsqueezy-mcp@latest"],
       "env": {
         "LEMONSQUEEZY_API_KEY": "your-api-key"
       }
@@ -91,7 +91,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "lemonsqueezy": {
       "command": "npx",
-      "args": ["-y", "@yawlabs/lemonsqueezy-mcp"],
+      "args": ["-y", "@yawlabs/lemonsqueezy-mcp@latest"],
       "env": {
         "LEMONSQUEEZY_API_KEY": "your-api-key"
       }
