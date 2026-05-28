@@ -33,4 +33,4 @@ Two paths, both starting from a clean checkout of `main`:
 
 2. **Local end-to-end**: `./release.sh <version>` does steps 1-7 on the workstation -- lint, test, build, bump, commit, tag, push, npm publish, GitHub release, verify. Requires `npm login --auth-type=web` and `gh auth login` to be done once on the machine. Idempotent; safe to re-run after partial failures.
 
-CI also runs on every push/PR (`ci.yml` -- lint + build + tests on Node 20 + 22) and nightly against the live store (`integration.yml` -- skips silently if `LEMONSQUEEZY_TEST_API_KEY` / `LEMONSQUEEZY_TEST_STORE_ID` aren't configured).
+There is no push/PR CI and no nightly integration run. Lint, typecheck, and tests must pass locally before commit -- the release workflow is the only GitHub Actions job that fires.
