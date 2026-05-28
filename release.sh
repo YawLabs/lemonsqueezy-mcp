@@ -151,18 +151,22 @@ elif [ "$IS_CI" = "true" ]; then
 else
   npm version "$VERSION" --no-git-tag-version
   info "package.json bumped"
-  # Mirror release.yml's jq step at commit time so the committed server.json
-  # always matches the published version. Without this, a manual recovery
-  # `mcp-publisher publish` (outside CI) would push a stale registry version.
-  node -e "
-    const fs = require('fs');
-    const f = 'server.json';
-    const s = JSON.parse(fs.readFileSync(f, 'utf8'));
-    s.version = '$VERSION';
-    s.packages[0].version = '$VERSION';
-    fs.writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
-  "
-  info "server.json bumped"
+fi
+
+# server.json is published to the MCP Registry in step 7 and must match the
+# tag's version. This runs UNCONDITIONALLY (not inside the bump else above)
+# so a resume run where package.json was bumped in a prior invocation still
+# syncs server.json -- otherwise mcp-publisher tries to re-publish the
+# previous version and gets 400 "cannot publish duplicate version".
+# Idempotent: the inner if skips the write when server.json is already in
+# sync, so a clean re-run produces no working-tree dirt.
+if [ -f server.json ]; then
+  CURRENT_SERVER_VERSION=$(jq -r '.version' server.json 2>/dev/null || echo "")
+  if [ "$CURRENT_SERVER_VERSION" != "$VERSION" ]; then
+    jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.tmp
+    mv server.tmp server.json
+    info "server.json synced to $VERSION"
+  fi
 fi
 
 # =============================================================================
