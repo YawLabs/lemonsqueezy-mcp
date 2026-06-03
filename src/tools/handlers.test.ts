@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { after, before, beforeEach, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import { GuardrailError, _resetGuardrailsForTest } from "../guardrails.js";
 import { _resetApiKeyCacheForTest } from "../secret.js";
 import { affiliateTools } from "./affiliates.js";
 import { checkoutTools } from "./checkouts.js";
@@ -1665,5 +1666,153 @@ describe("429 retry behavior", () => {
     const result = await tool.handler({ storeId: "1", name: "A", email: "a@b.c" });
     assert.equal(getCalls(), 1);
     assert.equal((result as { status: number }).status, 500);
+  });
+});
+
+// ─── Refund-cap guardrail enforcement (handler boundary) ───
+//
+// The isolated unit in guardrails.test.ts proves checkRefundAmount() throws
+// past the cap. These tests prove the wiring: the refund tool HANDLERS call
+// checkRefundAmount BEFORE the refund POST (orders.ts:119,
+// subscription-invoices.ts:125), so an over-cap refund is blocked end-to-end
+// and never reaches LemonSqueezy. A counting fetch mock makes "the POST never
+// went out" an explicit assertion rather than an inference from lastRequest.
+describe("Refund-cap guardrail enforcement at the handler", () => {
+  const SAVED_CAP = process.env.LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS;
+
+  function setCap(value: string | undefined) {
+    if (value === undefined) delete process.env.LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS;
+    else process.env.LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS = value;
+    // The guardrail options object is cached on first read; force a re-read so
+    // the new cap takes effect (mirrors how the server picks up config once).
+    _resetGuardrailsForTest();
+  }
+
+  // Wrap globalThis.fetch with a call counter so we can assert the refund POST
+  // was (or was not) actually dispatched. Returns a getter for the count.
+  function countingFetch(status = 200, responseData: unknown = { data: { id: "1" } }) {
+    let calls = 0;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls++;
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method ?? "GET";
+      let body: unknown;
+      if (init?.body) {
+        const raw = init.body.toString();
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          body = raw;
+        }
+      }
+      lastRequest = { url, method, headers: {}, body };
+      return new Response(JSON.stringify(responseData), {
+        status,
+        headers: { "Content-Type": "application/vnd.api+json" },
+      });
+    }) as typeof fetch;
+    return () => calls;
+  }
+
+  afterEach(() => {
+    setCap(SAVED_CAP);
+  });
+
+  describe("ls_refund_order", () => {
+    it("refuses an over-cap refund and never sends the POST", async () => {
+      setCap("10000");
+      const getCalls = countingFetch();
+      const tool = findTool(orderTools, "ls_refund_order");
+      await assert.rejects(
+        () => tool.handler({ orderId: "100", amount: 10001 }),
+        (err: unknown) => {
+          assert.ok(err instanceof GuardrailError, "expected a GuardrailError");
+          assert.match((err as Error).message, /exceeds LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS/);
+          return true;
+        },
+      );
+      // Guard fires before apiPost -> no HTTP call left the process.
+      assert.equal(getCalls(), 0, "over-cap refund must not reach the refund endpoint");
+      assert.equal(lastRequest, undefined);
+    });
+
+    it("allows a refund at exactly the cap (POST goes through)", async () => {
+      setCap("10000");
+      const getCalls = countingFetch();
+      const tool = findTool(orderTools, "ls_refund_order");
+      const result = (await tool.handler({ orderId: "100", amount: 10000 })) as AnyBody;
+      assert.equal(getCalls(), 1);
+      assert.equal(lastRequest!.method, "POST");
+      assert.ok(lastRequest!.url.includes("/orders/100/refund"));
+      assert.equal((lastRequest!.body as AnyBody).data.attributes.amount, 10000);
+      assert.equal(result.ok, true);
+    });
+
+    it("allows a refund under the cap (POST goes through)", async () => {
+      setCap("10000");
+      const getCalls = countingFetch();
+      const tool = findTool(orderTools, "ls_refund_order");
+      await tool.handler({ orderId: "100", amount: 500 });
+      assert.equal(getCalls(), 1);
+      assert.equal((lastRequest!.body as AnyBody).data.attributes.amount, 500);
+    });
+
+    it("imposes no limit when the cap env var is unset", async () => {
+      setCap(undefined);
+      const getCalls = countingFetch();
+      const tool = findTool(orderTools, "ls_refund_order");
+      await tool.handler({ orderId: "100", amount: 999_999_999 });
+      assert.equal(getCalls(), 1);
+      assert.equal((lastRequest!.body as AnyBody).data.attributes.amount, 999_999_999);
+    });
+  });
+
+  describe("ls_refund_subscription_invoice", () => {
+    it("refuses an over-cap refund and never sends the POST", async () => {
+      setCap("10000");
+      const getCalls = countingFetch();
+      const tool = findTool(subscriptionInvoiceTools, "ls_refund_subscription_invoice");
+      await assert.rejects(
+        () => tool.handler({ subscriptionInvoiceId: "400", amount: 10001 }),
+        (err: unknown) => {
+          assert.ok(err instanceof GuardrailError, "expected a GuardrailError");
+          assert.match((err as Error).message, /exceeds LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS/);
+          return true;
+        },
+      );
+      assert.equal(getCalls(), 0, "over-cap refund must not reach the refund endpoint");
+      assert.equal(lastRequest, undefined);
+    });
+
+    it("allows a refund at exactly the cap (POST goes through)", async () => {
+      setCap("10000");
+      const getCalls = countingFetch();
+      const tool = findTool(subscriptionInvoiceTools, "ls_refund_subscription_invoice");
+      const result = (await tool.handler({ subscriptionInvoiceId: "400", amount: 10000 })) as AnyBody;
+      assert.equal(getCalls(), 1);
+      assert.equal(lastRequest!.method, "POST");
+      assert.ok(lastRequest!.url.includes("/subscription-invoices/400/refund"));
+      assert.equal((lastRequest!.body as AnyBody).data.type, "subscription-invoices");
+      assert.equal((lastRequest!.body as AnyBody).data.attributes.amount, 10000);
+      assert.equal(result.ok, true);
+    });
+
+    it("allows a refund under the cap (POST goes through)", async () => {
+      setCap("10000");
+      const getCalls = countingFetch();
+      const tool = findTool(subscriptionInvoiceTools, "ls_refund_subscription_invoice");
+      await tool.handler({ subscriptionInvoiceId: "400", amount: 1000 });
+      assert.equal(getCalls(), 1);
+      assert.equal((lastRequest!.body as AnyBody).data.attributes.amount, 1000);
+    });
+
+    it("imposes no limit when the cap env var is unset", async () => {
+      setCap(undefined);
+      const getCalls = countingFetch();
+      const tool = findTool(subscriptionInvoiceTools, "ls_refund_subscription_invoice");
+      await tool.handler({ subscriptionInvoiceId: "400", amount: 999_999_999 });
+      assert.equal(getCalls(), 1);
+      assert.equal((lastRequest!.body as AnyBody).data.attributes.amount, 999_999_999);
+    });
   });
 });
