@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { licenseRequest } from "../api.js";
 
+// The three License-API tools below are intentionally NOT destructiveHint:true,
+// so they bypass the audit buffer and the destructive rate limit. ls_activate
+// grants access and ls_validate is read-only -- neither is access-revoking.
+// ls_deactivate DOES revoke an instance's access, but its input carries the raw
+// `licenseKey`, which redactSecrets() deliberately preserves (it is a business
+// identifier, not a secret-named key -- see redact.ts). Auditing it would write
+// live license keys into the in-memory buffer and the lemonsqueezy://audit-log
+// MCP resource. Admin-side revocation that SHOULD be audited goes through
+// ls_update_license_key (disabled:true), whose input is an opaque licenseKeyId,
+// not the key itself.
 export const licenseTools = [
   {
     name: "ls_activate_license",
