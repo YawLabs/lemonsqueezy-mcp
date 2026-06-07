@@ -1,0 +1,53 @@
+name: CI
+
+# Push/PR gate for main. Produces the `build-and-test (<node>)` status
+# checks the branch ruleset requires. There is no separate release CI --
+# releases run locally via release.sh (see CLAUDE.md "Release process").
+#
+# Node matrix is 22 (current LTS) and 24. The floor is 22 because the test
+# script (`node --test "dist/**/*.test.js"`) leans on Node's own glob
+# expansion of the quoted pattern, which is only reliable on >=22 -- it was
+# buggy on the now-EOL 21 line. Keep this matrix in sync with
+# package.json "engines".
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # `npm test` runs the build (tsc + esbuild) then the full suite.
+      # Integration tests self-skip without LEMONSQUEEZY_TEST_* secrets.
+      - name: Test
+        run: npm test
