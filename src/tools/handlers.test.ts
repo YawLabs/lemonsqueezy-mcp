@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import { GuardrailError, _resetGuardrailsForTest } from "../guardrails.js";
+import { _resetGuardrailsForTest, GuardrailError } from "../guardrails.js";
 import { _resetApiKeyCacheForTest } from "../secret.js";
 import { affiliateTools } from "./affiliates.js";
 import { checkoutTools } from "./checkouts.js";

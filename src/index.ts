@@ -99,9 +99,9 @@ for (const tool of allTools) {
 
 // Expose the in-memory destructive-call audit log as a read-only MCP
 // Resource so clients without stderr access can retrieve it structurally.
-// The buffer is filled in the tool wrapper above (after every destructive
-// success/failure log line). The resource is read-only -- there is no
-// matching write side.
+// The buffer is filled by createToolHandler in wrapper.js (after every
+// destructive success/failure log line). The resource is read-only -- there
+// is no matching write side.
 //
 // SDK signature (mcp.d.ts:87):
 //   resource(name, uri, metadata, readCallback): RegisteredResource

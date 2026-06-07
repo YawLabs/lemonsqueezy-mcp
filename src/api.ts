@@ -94,12 +94,13 @@ function decorateError(error: string, requestId: string | undefined): string {
  * output: `Request timed out after Xs (N attempts)`.
  */
 function formatTimeoutMessage(err: unknown, fallbackElapsedMs: number): string {
+  const plural = (n: number) => `${n} attempt${n === 1 ? "" : "s"}`;
   if (isRetryTimeoutError(err)) {
     const seconds = Math.max(1, Math.round(err.elapsedMs / 1000));
-    return `Request timed out after ${seconds}s (${err.attempts} attempts)`;
+    return `Request timed out after ${seconds}s (${plural(err.attempts)})`;
   }
   const seconds = Math.max(1, Math.round(fallbackElapsedMs / 1000));
-  return `Request timed out after ${seconds}s (1 attempts)`;
+  return `Request timed out after ${seconds}s (${plural(1)})`;
 }
 
 async function apiRequest<T = unknown>(method: string, path: string, body?: unknown): Promise<ApiResponse<T>> {

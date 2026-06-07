@@ -27,10 +27,8 @@ LemonSqueezy MCP server — manage your store, subscriptions, customers, and lic
 
 ## Release process
 
-Two paths, both starting from a clean checkout of `main`:
+Releases run **locally** from a clean checkout of `main` via `./release.sh <version>`, which does steps 1-7 on the workstation -- lint, test, build, bump, commit, tag, push, npm publish (with `--provenance`), GitHub release, verify. Requires `npm login --auth-type=web` and `gh auth login` to be done once on the machine. Idempotent; safe to re-run after partial failures.
 
-1. **Tag-and-let-CI** (preferred): bump `package.json`, commit, tag `vX.Y.Z`, `git push origin main --follow-tags`. The push triggers `.github/workflows/release.yml`, which runs `release.sh` in CI mode. CI authenticates to npm via the org-level `NPM_TOKEN` secret and publishes with `--provenance`, then creates the GitHub release. No local `npm login` needed.
+There is **no GitHub Actions release workflow** in this repo: `.github/` holds only `CODEOWNERS` and `dependabot.yml`. CI-on-tag-push via `.github/workflows/release.yml` (the YawLabs default -- the push triggers `release.sh` in CI mode, authenticating to npm via the org-level `NPM_TOKEN` secret) is the intended end state but is not wired up here today; until it is, `release.sh` is the only path.
 
-2. **Local end-to-end**: `./release.sh <version>` does steps 1-7 on the workstation -- lint, test, build, bump, commit, tag, push, npm publish, GitHub release, verify. Requires `npm login --auth-type=web` and `gh auth login` to be done once on the machine. Idempotent; safe to re-run after partial failures.
-
-There is no push/PR CI and no nightly integration run. Lint, typecheck, and tests must pass locally before commit -- the release workflow is the only GitHub Actions job that fires.
+There is also no push/PR CI and no nightly integration run. Lint, typecheck, and tests must pass locally before commit.
