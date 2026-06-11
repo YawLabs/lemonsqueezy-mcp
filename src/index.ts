@@ -119,4 +119,9 @@ server.resource(
 );
 
 const transport = new StdioServerTransport();
-await server.connect(transport);
+// Not top-level await: the single-binary build bundles to CJS via esbuild,
+// which cannot emit top-level await. Promise-chain the connect instead.
+server.connect(transport).catch((err: unknown) => {
+  process.stderr.write(`lemonsqueezy-mcp: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.exit(1);
+});

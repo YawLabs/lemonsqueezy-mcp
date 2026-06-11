@@ -40,7 +40,6 @@
     "check:containerfile": "node scripts/sync-containerfile.mjs --check",
     "prepublishOnly": "npm run build"
   },
-  "dependencies": {},
   "overrides": {
     "hono": "^4.12.14"
   },
@@ -49,6 +48,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^25.6.0",
     "esbuild": "^0.28.0",
+    "postject": "^1.0.0-alpha.6",
     "typescript": "^6.0.3",
     "zod": "^4.3.6"
   },
