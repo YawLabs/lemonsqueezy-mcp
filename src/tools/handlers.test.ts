@@ -1131,6 +1131,34 @@ describe("Error handling", () => {
     assert.equal(result.error, "Something went wrong");
   });
 
+  it("falls back to errors[].title when the envelope carries no detail", async () => {
+    // This is the REAL shape LemonSqueezy returns on a 404 -- captured from a
+    // live read-only call against the production API:
+    //   {"jsonapi":{"version":"1.0"},"errors":[{"status":"404","title":"Not Found"}]}
+    // Every fixture in this suite used `detail`, so the missing-detail case
+    // fell through to dumping the raw JSON body at the agent and no test saw it.
+    globalThis.fetch = (async () =>
+      new Response('{"jsonapi":{"version":"1.0"},"errors":[{"status":"404","title":"Not Found"}]}', {
+        status: 404,
+      })) as typeof fetch;
+    const tool = findTool(storeTools, "ls_get_store");
+    const result = (await tool.handler({ storeId: "999999999" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 404);
+    assert.equal(result.error, "Not Found");
+    assert.ok(!result.error.includes("{"), "must not surface the raw JSON body");
+  });
+
+  it("prefers errors[].detail over errors[].title when both are present", async () => {
+    globalThis.fetch = (async () =>
+      new Response('{"errors":[{"status":"422","title":"Unprocessable","detail":"Refund window closed"}]}', {
+        status: 422,
+      })) as typeof fetch;
+    const tool = findTool(storeTools, "ls_get_store");
+    const result = (await tool.handler({ storeId: "1" })) as AnyBody;
+    assert.equal(result.error, "Refund window closed");
+  });
+
   it("prefers errors[].detail over a bare error field when both are present", async () => {
     globalThis.fetch = (async () =>
       new Response('{"errors":[{"detail":"Detailed"}],"error":"Generic"}', { status: 422 })) as typeof fetch;

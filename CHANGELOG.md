@@ -2,6 +2,14 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.11.1] -- 2026-08-07
+
+### Fixed
+
+- **A 4xx whose error envelope carries no `detail` no longer dumps raw JSON at the caller.** LemonSqueezy's real 404 is `{"jsonapi":{"version":"1.0"},"errors":[{"status":"404","title":"Not Found"}]}` -- `title`, no `detail`. The message chain read `detail` then the License API's bare `error`, so this shape fell all the way through to the raw response body and an agent asking for a missing store got a JSON blob instead of a reason. `title` is now read between the two.
+
+  Long-standing, not new in 0.11.0, and invisible to the unit suite because every fixture in it (and every one added during the 0.11.0 audit) used `detail`. Caught by a read-only call against the live API. Both shapes are now pinned, including the precedence when `detail` and `title` are both present.
+
 ## [0.11.0] -- 2026-08-07
 
 ### Security
@@ -472,6 +480,7 @@ Hardening pass for unattended automation against live billing flows.
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
 [Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.9...HEAD
+[0.11.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.13...v0.11.0
 [0.10.13]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.12...v0.10.13
 [0.10.12]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.11...v0.10.12

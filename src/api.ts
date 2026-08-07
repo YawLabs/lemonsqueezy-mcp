@@ -96,7 +96,27 @@ function decorateError(error: string, requestId: string | undefined): string {
  * share the error path -- the management API never populates `error`, so
  * the extra fallback is inert there.
  */
-type ErrorEnvelope = { errors?: Array<{ detail?: string }>; error?: string };
+type ErrorEnvelope = {
+  errors?: Array<{ detail?: string; title?: string; status?: string }>;
+  error?: string;
+};
+
+/**
+ * Pull the most human-useful message out of an error envelope.
+ *
+ * Order matters. `detail` is the specific sentence ("Refund window closed") and
+ * wins when present. `title` is the generic reason ("Not Found") and is what
+ * LemonSqueezy actually sends on a 404 -- a real response looks like
+ * `{"jsonapi":{...},"errors":[{"status":"404","title":"Not Found"}]}` with no
+ * `detail` at all. Without the `title` arm that case fell all the way through
+ * to the raw body, so the agent was handed a JSON blob instead of a reason.
+ * `error` is the License API's bare-string form. Returns null when the envelope
+ * carries nothing usable, so the caller can fall back to the raw text.
+ */
+function extractErrorMessage(parsed: ErrorEnvelope): string | null {
+  const first = parsed.errors?.[0];
+  return first?.detail ?? first?.title ?? parsed.error ?? null;
+}
 
 /**
  * Shared non-2xx handling for both API clients: read the body once, prefer a
@@ -116,7 +136,7 @@ async function handleErrorResponse<T>(
   const errorBody = await res.text();
   try {
     const parsed = JSON.parse(errorBody) as ErrorEnvelope;
-    const detail = parsed.errors?.[0]?.detail ?? parsed.error ?? errorBody;
+    const detail = extractErrorMessage(parsed) ?? errorBody;
     logEvent({
       event: "http_call",
       method: route.method,
