@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-08-07
+
 ### Added
 - Runtime launcher at `bin/lemonsqueezy-mcp.mjs`: the published `lemonsqueezy-mcp` command now prefers the [oam](https://oamjs.org) runtime and falls back to Node. `LEMONSQUEEZY_MCP_RUNTIME` selects (`auto` / `oam` / `node`) and `OAM_BIN` overrides discovery. Both paths verified against the MCP surface — handshake plus all 64 tools — and behave identically. The fallback does **not** re-exec Node: npm has already started Node to run the launcher, so it is an in-process `import()` with no extra spawn.
 
