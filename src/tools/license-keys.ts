@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiPatch, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
+import { ToolInputError } from "../guardrails.js";
 
 export const licenseKeyTools = [
   {
@@ -105,6 +106,16 @@ export const licenseKeyTools = [
       if (input.activationLimit !== undefined) attributes.activation_limit = input.activationLimit;
       if (input.disabled !== undefined) attributes.disabled = input.disabled;
       if (input.expiresAt !== undefined) attributes.expires_at = input.expiresAt;
+
+      // An empty PATCH is a meaningless call that the API would reject with a
+      // less clear message. Reject locally so the caller sees what they did
+      // wrong before a round-trip. Matches ls_update_webhook /
+      // ls_update_customer / ls_update_subscription.
+      if (Object.keys(attributes).length === 0) {
+        throw new ToolInputError(
+          "ls_update_license_key requires at least one of: activationLimit, disabled, expiresAt",
+        );
+      }
 
       return apiPatch(`/license-keys/${encodePath(input.licenseKeyId)}`, {
         data: {

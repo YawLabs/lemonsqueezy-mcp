@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiPatch, apiPost, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
+import { ToolInputError } from "../guardrails.js";
 
 export const customerTools = [
   {
@@ -99,7 +100,7 @@ export const customerTools = [
     name: "ls_update_customer",
     authorityClass: "pii" as const,
     description:
-      "Update an existing customer's name, email, city, region, country, or status. The only supported status value is 'archived' — use ls_archive_customer for the dedicated, audit-tagged path.",
+      "Update an existing customer's name, email, city, region, country, or status. The only supported status value is 'archived'; setting it here is the same operation as ls_archive_customer and is treated as destructive (rate-limited and audited). Other field edits are not.",
     annotations: {
       title: "Update customer",
       readOnlyHint: false,
@@ -144,6 +145,16 @@ export const customerTools = [
       if (input.region !== undefined) attributes.region = input.region;
       if (input.country !== undefined) attributes.country = input.country;
       if (input.status !== undefined) attributes.status = input.status;
+
+      // An empty PATCH is a meaningless call that the API would reject with a
+      // less clear message. Reject locally so the caller sees what they did
+      // wrong before a round-trip. Matches ls_update_webhook /
+      // ls_update_subscription / ls_update_license_key.
+      if (Object.keys(attributes).length === 0) {
+        throw new ToolInputError(
+          "ls_update_customer requires at least one of: name, email, city, region, country, status",
+        );
+      }
 
       return apiPatch(`/customers/${encodePath(input.customerId)}`, {
         data: {

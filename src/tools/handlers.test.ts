@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import { _resetGuardrailsForTest, GuardrailError } from "../guardrails.js";
+import { _resetGuardrailsForTest, GuardrailError, ToolInputError } from "../guardrails.js";
 import { _resetApiKeyCacheForTest } from "../secret.js";
 import { affiliateTools } from "./affiliates.js";
 import { checkoutTools } from "./checkouts.js";
@@ -221,6 +221,14 @@ describe("Customer handlers", () => {
     assert.equal(body.data.attributes.email, undefined);
   });
 
+  it("ls_update_customer rejects an update with no fields to change", async () => {
+    const tool = findTool(customerTools, "ls_update_customer");
+    await assert.rejects(
+      () => tool.handler({ customerId: "99" }),
+      /at least one of: name, email, city, region, country, status/,
+    );
+  });
+
   it("ls_archive_customer sends PATCH with status=archived", async () => {
     const tool = findTool(customerTools, "ls_archive_customer");
     await tool.handler({ customerId: "99" });
@@ -431,6 +439,11 @@ describe("Subscription handlers", () => {
     assert.equal(body.data.attributes.disable_prorations, true);
   });
 
+  it("ls_update_subscription rejects an update with no fields to change", async () => {
+    const tool = findTool(subscriptionTools, "ls_update_subscription");
+    await assert.rejects(() => tool.handler({ subscriptionId: "300" }), /requires at least one of: variantId, pause/);
+  });
+
   it("ls_cancel_subscription sends DELETE", async () => {
     mockFetch(204);
     const tool = findTool(subscriptionTools, "ls_cancel_subscription");
@@ -453,6 +466,26 @@ describe("Subscription invoice handlers", () => {
     const tool = findTool(subscriptionInvoiceTools, "ls_list_subscription_invoices");
     await tool.handler({ status: "paid" });
     assert.ok(lastRequest!.url.includes("filter[status]=paid"));
+  });
+
+  it("ls_list_subscription_invoices forwards refunded: false as a filter", async () => {
+    // Every other filter test uses a string or enum. `refunded` is the only
+    // boolean filter in the package, and listHandler gates on
+    // `val !== undefined` -- tightening that to a truthiness check (an easy
+    // "cleanup") would silently drop refunded: false and return the wrong
+    // result set with no error.
+    const tool = findTool(subscriptionInvoiceTools, "ls_list_subscription_invoices");
+    await tool.handler({ refunded: false });
+    assert.ok(
+      lastRequest!.url.includes("filter[refunded]=false"),
+      `expected filter[refunded]=false, got ${lastRequest!.url}`,
+    );
+  });
+
+  it("ls_list_subscription_invoices forwards refunded: true as a filter", async () => {
+    const tool = findTool(subscriptionInvoiceTools, "ls_list_subscription_invoices");
+    await tool.handler({ refunded: true });
+    assert.ok(lastRequest!.url.includes("filter[refunded]=true"));
   });
 
   it("ls_generate_subscription_invoice sends POST with query params", async () => {
@@ -693,6 +726,51 @@ describe("License key handlers", () => {
     const body = lastRequest!.body as AnyBody;
     assert.equal(body.data.attributes.expires_at, null);
   });
+
+  it("ls_update_license_key rejects an update with no fields to change", async () => {
+    const tool = findTool(licenseKeyTools, "ls_update_license_key");
+    await assert.rejects(
+      () => tool.handler({ licenseKeyId: "900" }),
+      /at least one of: activationLimit, disabled, expiresAt/,
+    );
+  });
+});
+
+// Every PATCH-shaped tool rejects a no-op update locally rather than paying a
+// round-trip for an upstream 422. ls_update_webhook had this guard from the
+// start; the other three did not. Asserted as a set so a NEW update tool that
+// forgets the guard is visible here rather than in production traffic.
+describe("Empty-PATCH guards are uniform across update tools", () => {
+  // Matches the `findTool` signature above -- the four tool arrays have
+  // heterogeneous handler input types and only need to be called, not typed.
+  // biome-ignore lint/complexity/noBannedTypes: mirrors the findTool helper
+  type UpdateToolCase = { tools: readonly { name: string; handler: Function }[]; name: string; idOnly: object };
+  const cases: UpdateToolCase[] = [
+    { tools: customerTools, name: "ls_update_customer", idOnly: { customerId: "1" } },
+    { tools: subscriptionTools, name: "ls_update_subscription", idOnly: { subscriptionId: "1" } },
+    { tools: licenseKeyTools, name: "ls_update_license_key", idOnly: { licenseKeyId: "1" } },
+    { tools: webhookTools, name: "ls_update_webhook", idOnly: { webhookId: "1" } },
+  ];
+
+  for (const { tools, name, idOnly } of cases) {
+    it(`${name} rejects an ID-only update without sending a request`, async () => {
+      lastRequest = undefined;
+      const tool = findTool(tools, name);
+      // The TYPE matters, not just the message: the wrapper maps
+      // ToolInputError to a `validation_error` audit status so a client
+      // mistake is distinguishable from an upstream fault. A plain Error
+      // here would silently land in the `exception` bucket.
+      await assert.rejects(
+        () => tool.handler(idOnly),
+        (err: unknown) => {
+          assert.ok(err instanceof ToolInputError, `${name} must throw ToolInputError, got ${String(err)}`);
+          assert.match((err as Error).message, /requires at least one of:/);
+          return true;
+        },
+      );
+      assert.equal(lastRequest, undefined, `${name} must not dispatch an empty PATCH`);
+    });
+  }
 });
 
 // ─── License Key Instances ───
@@ -1020,6 +1098,47 @@ describe("Error handling", () => {
     assert.equal(result.data, undefined);
   });
 
+  it("handles a 200 with an empty body", async () => {
+    // Only 204 was covered before. `readJsonBody` exists precisely because
+    // some PATCH/POST endpoints answer 200 with no payload -- if that path
+    // regresses to res.json(), a successful call surfaces to the agent as a
+    // SyntaxError-shaped `exception` instead of success.
+    globalThis.fetch = (async () => new Response("", { status: 200 })) as typeof fetch;
+    const tool = findTool(customerTools, "ls_update_customer");
+    const result = (await tool.handler({ customerId: "1", name: "X" })) as AnyBody;
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 200);
+    assert.equal(result.data, undefined);
+  });
+
+  it("handles a 200 with a whitespace-only body", async () => {
+    globalThis.fetch = (async () => new Response("   \n  ", { status: 200 })) as typeof fetch;
+    const tool = findTool(customerTools, "ls_update_customer");
+    const result = (await tool.handler({ customerId: "1", name: "X" })) as AnyBody;
+    assert.equal(result.ok, true);
+    assert.equal(result.data, undefined);
+  });
+
+  it("reads a bare {error: ...} envelope on the management API", async () => {
+    // The management API normally answers with JSON:API `errors[].detail`,
+    // but the shared error handler also falls back to a bare `error` string.
+    // That fallback was only exercised on the License API path.
+    globalThis.fetch = (async () => new Response('{"error":"Something went wrong"}', { status: 400 })) as typeof fetch;
+    const tool = findTool(storeTools, "ls_get_store");
+    const result = (await tool.handler({ storeId: "1" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 400);
+    assert.equal(result.error, "Something went wrong");
+  });
+
+  it("prefers errors[].detail over a bare error field when both are present", async () => {
+    globalThis.fetch = (async () =>
+      new Response('{"errors":[{"detail":"Detailed"}],"error":"Generic"}', { status: 422 })) as typeof fetch;
+    const tool = findTool(storeTools, "ls_get_store");
+    const result = (await tool.handler({ storeId: "1" })) as AnyBody;
+    assert.equal(result.error, "Detailed");
+  });
+
   it("handles 429 rate limit response", async () => {
     globalThis.fetch = (async () => {
       return new Response('{"errors":[{"detail":"Too many requests"}]}', { status: 429 });
@@ -1086,7 +1205,7 @@ describe("License API error handling", () => {
 
 // ─── API client: buildQuery ───
 
-const { buildQuery } = await import("../api.js");
+const { buildQuery, buildInvoiceQuery } = await import("../api.js");
 
 describe("buildQuery", () => {
   it("returns empty string for no params", () => {
@@ -1147,6 +1266,67 @@ describe("buildQuery", () => {
 
   it("handles single include value", () => {
     assert.equal(buildQuery({ include: ["store"] }), "?include=store");
+  });
+
+  it("emits no include param for an empty-string include", () => {
+    // The include schemas set .max() but no .min(), so `include: ""` is valid
+    // input. `"".split(",")` is [""] -- a length-1 array of an empty string,
+    // which used to produce a bare `?include=`.
+    assert.equal(buildQuery({ include: "".split(",") }), "");
+    assert.equal(buildQuery({ include: ["", "  "] }), "");
+  });
+
+  it("drops empty segments but keeps the real ones", () => {
+    assert.equal(buildQuery({ include: "store,,orders".split(",") }), "?include=store%2Corders");
+  });
+});
+
+// Both generate-invoice endpoints take the same eight fields on the query
+// string. They used to carry byte-identical URLSearchParams builders; the
+// shared helper is now the single implementation.
+describe("buildInvoiceQuery", () => {
+  it("returns an empty string when no invoice details are supplied", () => {
+    assert.equal(buildInvoiceQuery({}), "");
+  });
+
+  it("maps zipCode to zip_code and leaves the rest as-is", () => {
+    const q = buildInvoiceQuery({ name: "Acme", zipCode: "10001", locale: "fr" });
+    assert.ok(q.startsWith("?"));
+    assert.ok(q.includes("name=Acme"));
+    assert.ok(q.includes("zip_code=10001"));
+    assert.ok(q.includes("locale=fr"));
+    assert.ok(!q.includes("zipCode"));
+  });
+
+  it("omits fields that were not provided", () => {
+    const q = buildInvoiceQuery({ city: "Chicago" });
+    assert.equal(q, "?city=Chicago");
+  });
+});
+
+describe("Generate-invoice tools share one query builder", () => {
+  it("ls_generate_order_invoice emits exactly buildInvoiceQuery's output", async () => {
+    const details = { name: "Acme Corp", zipCode: "10001", country: "US", locale: "en" };
+    const tool = findTool(orderTools, "ls_generate_order_invoice");
+    await tool.handler({ orderId: "100", ...details });
+    assert.equal(lastRequest!.url, `${BASE}/orders/100/generate-invoice${buildInvoiceQuery(details)}`);
+  });
+
+  it("ls_generate_subscription_invoice emits exactly buildInvoiceQuery's output", async () => {
+    const details = { name: "Acme Corp", zipCode: "60601", country: "US", locale: "en" };
+    const tool = findTool(subscriptionInvoiceTools, "ls_generate_subscription_invoice");
+    await tool.handler({ subscriptionInvoiceId: "400", ...details });
+    assert.equal(lastRequest!.url, `${BASE}/subscription-invoices/400/generate-invoice${buildInvoiceQuery(details)}`);
+  });
+
+  it("both omit the query string entirely when no details are supplied", async () => {
+    const orderTool = findTool(orderTools, "ls_generate_order_invoice");
+    await orderTool.handler({ orderId: "100" });
+    assert.equal(lastRequest!.url, `${BASE}/orders/100/generate-invoice`);
+
+    const invoiceTool = findTool(subscriptionInvoiceTools, "ls_generate_subscription_invoice");
+    await invoiceTool.handler({ subscriptionInvoiceId: "400" });
+    assert.equal(lastRequest!.url, `${BASE}/subscription-invoices/400/generate-invoice`);
   });
 });
 
@@ -1510,6 +1690,38 @@ describe("Auth-failure secret cache invalidation", () => {
     }
   });
 
+  it("a 401 from the LICENSE API does NOT invalidate the cached API key", async () => {
+    // The License API authenticates with the license key carried in the
+    // caller's input, not with LEMONSQUEEZY_API_KEY -- so a customer typing a
+    // bad key must not evict the server's cached credential. Without this,
+    // every failed activation attempt would re-run the operator's vault
+    // command. The management-API 401/403 bust is covered above; this pins
+    // the deliberate absence of it on the other client.
+    const { counterFile } = setupCounterCommand();
+    try {
+      const store = findTool(storeTools, "ls_get_store");
+
+      mockFetch(200, { data: { id: "1" } });
+      await store.handler({ storeId: "1" });
+      assert.equal(fs.readFileSync(counterFile, "utf8"), "1", "precondition: key cached after first call");
+
+      globalThis.fetch = (async () =>
+        new Response('{"error":"license_key not found"}', { status: 401 })) as typeof fetch;
+      const licenseResult = (await findTool(licenseTools, "ls_validate_license").handler({
+        licenseKey: "BAD-KEY",
+      })) as { ok: boolean; status: number };
+      assert.equal(licenseResult.ok, false);
+      assert.equal(licenseResult.status, 401);
+
+      // Cache survived: the next management call still reuses the key.
+      mockFetch(200, { data: { id: "1" } });
+      await store.handler({ storeId: "1" });
+      assert.equal(fs.readFileSync(counterFile, "utf8"), "1", "License API 401 must not bust the API-key cache");
+    } finally {
+      teardown();
+    }
+  });
+
   it("a 404 does NOT invalidate the cache (not an auth failure)", async () => {
     const { counterFile } = setupCounterCommand();
     try {
@@ -1716,6 +1928,28 @@ describe("Refund-cap guardrail enforcement at the handler", () => {
 
   afterEach(() => {
     setCap(SAVED_CAP);
+  });
+
+  // The handler check above is the backstop for direct callers. Through the
+  // MCP wrapper the cap must ALSO run as `preflight`, which fires ahead of
+  // the class and destructive rate limiters -- otherwise a rejected over-cap
+  // refund still burns the caller's money:N/h budget. Dropping the preflight
+  // would leave every handler test above green, so assert it here.
+  describe("both refund tools declare the cap as a preflight guardrail", () => {
+    const refundCases = [
+      { tools: orderTools, name: "ls_refund_order" },
+      { tools: subscriptionInvoiceTools, name: "ls_refund_subscription_invoice" },
+    ] as const;
+
+    for (const { tools, name } of refundCases) {
+      it(`${name} exposes a preflight that enforces the cap`, () => {
+        setCap("10000");
+        const tool = findTool(tools, name) as unknown as { preflight?: (input: unknown) => void };
+        assert.equal(typeof tool.preflight, "function", `${name} must declare a preflight guardrail`);
+        assert.throws(() => tool.preflight?.({ amount: 10001 }), GuardrailError);
+        assert.doesNotThrow(() => tool.preflight?.({ amount: 10000 }));
+      });
+    }
   });
 
   describe("ls_refund_order", () => {

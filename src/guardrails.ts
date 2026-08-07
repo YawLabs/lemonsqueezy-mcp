@@ -27,6 +27,25 @@ export class GuardrailError extends Error {
   }
 }
 
+/**
+ * A caller-input mistake a tool can detect locally, before any request goes
+ * out -- today, a PATCH with no fields to change.
+ *
+ * Deliberately distinct from the two neighbours it would otherwise be confused
+ * with. `GuardrailError` means operator policy refused the call; a plain
+ * `Error` means something unexpected broke. Both of those are the operator's
+ * problem; this one is the client's. The wrapper tags it `validation_error` so
+ * a log scan at LEMONSQUEEZY_LOG=error can separate "an agent sent a malformed
+ * request" from "the server or upstream faulted" -- without it, every
+ * ID-only PATCH looks identical to an upstream 502 in the log stream.
+ */
+export class ToolInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ToolInputError";
+  }
+}
+
 // Each tool declares an authority class describing the kind of authority it
 // exercises -- not just "does it write" but what business-domain authority a
 // caller needs to invoke it. The class is what the operator gates on, separate

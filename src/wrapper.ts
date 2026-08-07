@@ -19,6 +19,7 @@ import {
   checkStoreScopedToolInput,
   GuardrailError,
   isDestructiveCall,
+  ToolInputError,
 } from "./guardrails.js";
 import { logEvent, wouldLogToolCall } from "./logger.js";
 import { redactSecrets } from "./redact.js";
@@ -68,6 +69,24 @@ export type RegisterableTool<TInput = unknown> = {
   inputSchema: { shape: any };
   isDestructive?: (input: TInput) => boolean;
   requiredFilters?: readonly string[];
+  /**
+   * Optional input-validating guardrail that runs BEFORE the rate limiters.
+   *
+   * Throw to reject the call -- `GuardrailError` when operator policy refuses
+   * it (the refund cap), `ToolInputError` when the input itself is malformed.
+   * The wrapper maps each to its own audit status. Exists so a per-tool
+   * guardrail whose verdict depends on the input -- today only the refund cap
+   * -- can reject without first consuming the caller's class and destructive
+   * rate-limit budget. A check that lives only inside the handler runs after
+   * both limiters have already recorded a timestamp, so a client looping on a
+   * rejected refund would burn its `money:2/h` allowance on calls that never
+   * left the process.
+   *
+   * Must be side-effect free: it runs in addition to (not instead of) any
+   * equivalent check inside the handler, which stays in place for callers that
+   * invoke `tool.handler` directly.
+   */
+  preflight?: (input: TInput) => void;
   handler: (input: TInput) => Promise<ToolHandlerResponse>;
 };
 
@@ -78,13 +97,18 @@ export type RegisterableTool<TInput = unknown> = {
  *
  *   1. Compute `isDestructive` once from the input (some tools use a
  *      predicate, e.g. ls_update_license_key).
- *   2. Authority-class gates run first -- if the operator has disabled the
- *      class or set a per-class rate limit, we reject BEFORE touching the
- *      destructive timestamp ring or the storeId allowlist.
- *   3. The destructive rate limit fires next, only when the call is
- *      destructive. Order matters: a class-disabled call should not
- *      contribute to the destructive count.
- *   4. checkStoreScopedToolInput runs last among the guardrails, so an
+ *   2. The class-disable gate runs first -- if the operator has turned the
+ *      class off entirely, we reject BEFORE touching any rate-limit ring or
+ *      the storeId allowlist.
+ *   3. `tool.preflight` (currently only the refund cap) runs next, still
+ *      ahead of both rate limiters. A guardrail rejection must not consume
+ *      the caller's budget -- same principle as (2) not consuming the
+ *      destructive count.
+ *   4. The per-class rate limit runs after the input-shaped guardrails.
+ *   5. The destructive rate limit fires next, only when the call is
+ *      destructive. Order matters: a class-disabled or preflight-rejected
+ *      call should not contribute to the destructive count.
+ *   6. checkStoreScopedToolInput runs last among the guardrails, so an
  *      allowlist miss surfaces a specific error rather than a generic
  *      class rejection.
  *
@@ -134,10 +158,33 @@ export function createToolHandler<TInput = unknown>(
     }
     const inputAsRecord = input as Record<string, unknown>;
     const toolAsRecord = tool as unknown as RegisterableTool<Record<string, unknown>>;
-    const isDestructive = isDestructiveCall(toolAsRecord, inputAsRecord);
+    // Computed OUTSIDE the main try so it stays in scope inside the catch --
+    // a destructive call whose handler throws must still be routed to the
+    // audit ring. That placement means a throwing `isDestructive` predicate
+    // would escape as an unhandled rejection and destabilize the stdio loop,
+    // so the predicate gets its own guard. Every predicate today is a trivial
+    // property read and cannot throw; this is the careless-edit backstop.
+    // Fail CLOSED on a faulty predicate: treat the call as destructive so it
+    // engages the rate limiter and audit log rather than slipping past both.
+    let isDestructive: boolean;
+    try {
+      isDestructive = isDestructiveCall(toolAsRecord, inputAsRecord);
+    } catch (predicateErr) {
+      isDestructive = true;
+      logEvent({
+        event: "tool_call",
+        tool: tool.name,
+        status: "exception",
+        latency_ms: 0,
+        error: `isDestructive predicate for tool "${tool.name}" threw: ${
+          predicateErr instanceof Error ? predicateErr.message : String(predicateErr)
+        }. Treating the call as destructive.`,
+      });
+    }
     const start = Date.now();
     try {
       checkClassAllowed(tool.authorityClass);
+      tool.preflight?.(input);
       checkClassRateLimit(tool.authorityClass);
       if (isDestructive) checkDestructiveRateLimit();
       checkStoreScopedToolInput(toolAsRecord, inputAsRecord);
@@ -200,7 +247,15 @@ export function createToolHandler<TInput = unknown>(
         const errorEntry = {
           event: "tool_call" as const,
           tool: tool.name,
-          status: err instanceof GuardrailError ? ("guardrail_block" as const) : ("exception" as const),
+          // Three distinct buckets, because they mean three different things
+          // to whoever is reading the log: operator policy refused the call,
+          // the client sent a bad request, or something actually broke.
+          status:
+            err instanceof GuardrailError
+              ? ("guardrail_block" as const)
+              : err instanceof ToolInputError
+                ? ("validation_error" as const)
+                : ("exception" as const),
           latency_ms,
           error: message,
           audit: isDestructive ? true : undefined,

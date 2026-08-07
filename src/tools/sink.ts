@@ -207,10 +207,15 @@ async function sinkRequest(
   }
   const text = readResult.text;
   if (!text.trim()) return { ok: true, data: {} };
-  if (text.length > MAX_BODY_SIZE_BYTES) {
+  // Measure UTF-8 bytes, not UTF-16 code units. `String.length` undercounts
+  // every multi-byte character, so a body of non-ASCII JSON could exceed the
+  // byte limit while reporting a char count comfortably under it -- and the
+  // message would still say "bytes".
+  const byteLength = Buffer.byteLength(text, "utf8");
+  if (byteLength > MAX_BODY_SIZE_BYTES) {
     return {
       ok: false,
-      error: `Sink response body too large: ${text.length} bytes exceeds ${MAX_BODY_SIZE_BYTES} byte limit`,
+      error: `Sink response body too large: ${byteLength} bytes exceeds ${MAX_BODY_SIZE_BYTES} byte limit`,
     };
   }
   try {

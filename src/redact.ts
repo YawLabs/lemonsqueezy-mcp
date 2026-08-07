@@ -34,10 +34,14 @@ const JWT_VALUE_RE = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}$/
 const REDACTED = "[REDACTED]";
 const CIRCULAR = "[CIRCULAR]";
 
-// Hard depth cap as a belt-and-braces complement to the visited-set cycle
+// Hard depth cap as a belt-and-braces complement to the ancestor-path cycle
 // guard. A pathological input nested 33+ levels deep stops descending; the
 // audit trail keeps the top-level shape and surfaces "[CIRCULAR]" at the
-// boundary so an operator can see truncation happened.
+// boundary so an operator can see truncation happened. It also bounds
+// recursion depth on a long chain.
+//
+// It is NOT what bounds total work -- the memo in `redactInner` is. See the
+// note on `redactSecrets`.
 const MAX_DEPTH = 32;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -52,31 +56,53 @@ function looksLikeBearerToken(value: unknown): boolean {
   return JWT_VALUE_RE.test(value);
 }
 
-function redactInner(value: unknown, visited: WeakSet<object>, depth: number): unknown {
+/**
+ * A completed subtree, plus the depth it was computed at.
+ *
+ * The depth matters because MAX_DEPTH truncation is position-dependent: a node
+ * first reached at depth 30 may have had its children cut off, while the same
+ * node reached later at depth 2 has budget to expand fully. Reusing a cached
+ * result is only sound when the cached run had at least as much remaining
+ * budget as the current position -- i.e. `cached.depth <= depth`.
+ */
+type MemoEntry = { depth: number; result: unknown };
+
+function redactInner(
+  value: unknown,
+  ancestors: WeakSet<object>,
+  memo: WeakMap<object, MemoEntry>,
+  depth: number,
+): unknown {
   if (depth > MAX_DEPTH) return CIRCULAR;
   if (typeof value === "string" && looksLikeBearerToken(value)) return REDACTED;
   if (value === null || typeof value !== "object") return value;
 
-  if (Array.isArray(value)) {
-    if (visited.has(value)) return CIRCULAR;
-    visited.add(value);
-    return value.map((item) => redactInner(item, visited, depth + 1));
-  }
+  const isArray = Array.isArray(value);
+  // Non-plain objects (Date, Buffer, class instances) pass through by
+  // reference without descending.
+  if (!isArray && !isPlainObject(value)) return value;
 
-  if (!isPlainObject(value)) return value;
+  // Back-edge: this node is an ANCESTOR on the current path, so descending
+  // again would not terminate.
+  if (ancestors.has(value)) return CIRCULAR;
 
-  if (visited.has(value)) return CIRCULAR;
-  visited.add(value);
+  const cached = memo.get(value);
+  if (cached !== undefined && cached.depth <= depth) return cached.result;
 
-  const out: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(value)) {
-    if (SECRET_KEY_RE.test(key)) {
-      out[key] = REDACTED;
-    } else {
-      out[key] = redactInner(val, visited, depth + 1);
+  ancestors.add(value);
+  let result: unknown;
+  if (isArray) {
+    result = (value as unknown[]).map((item) => redactInner(item, ancestors, memo, depth + 1));
+  } else {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = SECRET_KEY_RE.test(key) ? REDACTED : redactInner(val, ancestors, memo, depth + 1);
     }
+    result = out;
   }
-  return out;
+  ancestors.delete(value);
+  memo.set(value, { depth, result });
+  return result;
 }
 
 /**
@@ -84,7 +110,28 @@ function redactInner(value: unknown, visited: WeakSet<object>, depth: number): u
  * replaced by "[REDACTED]". Does not mutate the input. Circular references
  * are replaced with "[CIRCULAR]" at the back-edge -- the call always
  * terminates.
+ *
+ * The cycle guard tracks the ANCESTOR PATH (entries are removed on the way
+ * back up), not every node ever seen. A permanent visited set also terminates,
+ * but it reports a false "[CIRCULAR]" for a merely SHARED reference: given
+ * `{ a: x, b: x }` with a plain-object `x`, the second occurrence is not a
+ * cycle and must redact normally.
+ *
+ * An ancestor set ALONE is O(paths), not O(nodes) -- and a "diamond chain"
+ * where every level holds two references to the same child has 2^depth paths
+ * over only depth+1 objects. Measured before the memo was added: 23 objects
+ * took 3.2 seconds, doubling per level, which at MAX_DEPTH would block the
+ * stdio server for the better part of an hour from inside the audit path. The
+ * `memo` restores linear behaviour by reusing a completed subtree instead of
+ * re-walking it; because an entry is only reused when it was computed with at
+ * least as much depth budget as the current position, each node is recomputed
+ * at most MAX_DEPTH times in the worst case.
+ *
+ * Consequence worth knowing: a shared input node yields the SAME output object
+ * in every position it appears, so the result can be a DAG. That is fine for
+ * `JSON.stringify` (which only rejects true cycles) and for the audit buffer,
+ * which stores entries by reference.
  */
 export function redactSecrets(input: unknown): unknown {
-  return redactInner(input, new WeakSet(), 0);
+  return redactInner(input, new WeakSet(), new WeakMap(), 0);
 }

@@ -17,8 +17,11 @@ type LogLevel = "off" | "error" | "audit" | "all";
 // still means "log everything" so existing deployments don't change behavior.
 // New values let long-running deployments trim volume:
 //   - `error`: only entries that represent a failure (4xx/5xx, timeout,
-//             network error, exception, guardrail block, or any entry with
-//             a populated `error` field).
+//             network error, exception, guardrail block, client-side
+//             validation error, or any entry with a populated `error` field).
+//             The `status` tag distinguishes the cause: `guardrail_block` =
+//             operator policy refused it, `validation_error` = the client sent
+//             a malformed request, `exception` = something faulted.
 //   - `audit`: errors plus destructive-call audit entries (`audit: true`).
 //             Recommended for production where you must keep an audit trail
 //             but don't need every successful read in your log pipeline.
@@ -32,7 +35,14 @@ function getLogLevel(): LogLevel {
   return "off";
 }
 
-const ERROR_STATUS_TAGS = new Set(["error", "exception", "guardrail_block", "timeout", "network_error"]);
+const ERROR_STATUS_TAGS = new Set([
+  "error",
+  "exception",
+  "guardrail_block",
+  "validation_error",
+  "timeout",
+  "network_error",
+]);
 
 function isErrorEntry(entry: LogEntry): boolean {
   if (entry.error !== undefined) return true;

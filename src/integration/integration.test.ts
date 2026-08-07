@@ -1,9 +1,11 @@
 /**
  * Integration tests against a real LemonSqueezy store.
  *
- * Runs only when LEMONSQUEEZY_TEST_API_KEY and LEMONSQUEEZY_TEST_STORE_ID are set
- * (typically in the nightly CI workflow). Skipped silently otherwise so local
- * `npm test` doesn't require credentials.
+ * Runs only when LEMONSQUEEZY_TEST_API_KEY and LEMONSQUEEZY_TEST_STORE_ID are
+ * set. Skipped silently otherwise so local `npm test` doesn't require
+ * credentials. There is no CI for this repo today -- `.github/` holds only
+ * CODEOWNERS -- so this suite runs on demand via `npm run test:integration`
+ * against a throwaway store, typically before cutting a release.
  *
  * Read paths are pure GET/list and touch nothing. The write-path round-trip
  * creates a throwaway discount, reads it back, and deletes it. Every resource
@@ -36,11 +38,12 @@ const enabled = Boolean(testApiKey && testStoreId);
 const CI_PREFIX = "ci-test-";
 const SWEEP_STALE_AFTER_MS = 60 * 60 * 1000; // 1h
 
-// Per-resource unique suffix. The release-trigger workflow serializes via
-// concurrency, but the nightly schedule and `workflow_dispatch` can overlap
-// it -- two runs that started in the same millisecond would collide on a
-// timestamp suffix. UUID v4 has enough entropy that the first 8 hex chars
-// (32 bits) are collision-safe across any realistic concurrent-run window.
+// Per-resource unique suffix. Nothing serializes runs of this suite -- two
+// operators (or a re-run started before the previous one finished) can be
+// live against the same test store at once, and a timestamp suffix would
+// collide for anything started in the same millisecond. UUID v4 has enough
+// entropy that the first 8 hex chars (32 bits) are collision-safe across any
+// realistic concurrent-run window.
 function uniqueSuffix(): string {
   return randomUUID().replace(/-/g, "").slice(0, 8);
 }

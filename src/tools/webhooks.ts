@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiDelete, apiPatch, apiPost, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
+import { ToolInputError } from "../guardrails.js";
 
 // z.string().url() accepts every URL-parseable scheme (mailto:, file:,
 // javascript:, ftp:, chrome-extension:, etc.). LemonSqueezy webhooks only
@@ -122,9 +123,10 @@ export const webhookTools = [
 
       // An empty PATCH is a meaningless call that the API would 422 with a
       // less clear message. Reject locally so the caller sees what they did
-      // wrong before a round-trip.
+      // wrong before a round-trip. Matches ls_update_customer /
+      // ls_update_subscription / ls_update_license_key.
       if (Object.keys(attributes).length === 0) {
-        throw new Error("ls_update_webhook requires at least one of: url, events, secret");
+        throw new ToolInputError("ls_update_webhook requires at least one of: url, events, secret");
       }
 
       return apiPatch(`/webhooks/${encodePath(input.webhookId)}`, {

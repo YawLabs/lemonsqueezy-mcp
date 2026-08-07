@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { getHandler, listHandler, lsIdSchema } from "../api.js";
+import { crossStoreFilterNote, getHandler, listHandler, lsIdSchema } from "../api.js";
+
+// Drives both `requiredFilters` and the description disclosure -- see prices.ts.
+const LIST_ORDER_ITEMS_FILTERS = ["orderId", "productId", "variantId"] as const;
 
 export const orderItemTools = [
   {
@@ -26,8 +29,7 @@ export const orderItemTools = [
   {
     name: "ls_list_order_items",
     authorityClass: "read" as const,
-    description:
-      "List all order items, optionally filtered by order or product. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool requires at least one of: orderId, productId, variantId. Even with that set, pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.",
+    description: `List all order items, optionally filtered by order or product. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. ${crossStoreFilterNote(LIST_ORDER_ITEMS_FILTERS)}`,
     annotations: {
       title: "List order items",
       readOnlyHint: true,
@@ -47,7 +49,7 @@ export const orderItemTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    requiredFilters: ["orderId", "productId", "variantId"] as const,
+    requiredFilters: LIST_ORDER_ITEMS_FILTERS,
     handler: listHandler("/order-items", { orderId: "order_id", productId: "product_id", variantId: "variant_id" }),
   },
 ] as const;

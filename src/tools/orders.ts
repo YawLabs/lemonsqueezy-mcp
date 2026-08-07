@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPost, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
+import { apiPost, buildInvoiceQuery, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
 import { checkRefundAmount } from "../guardrails.js";
 
 export const orderTools = [
@@ -86,17 +86,7 @@ export const orderTools = [
       notes?: string;
       locale?: string;
     }) => {
-      const params = new URLSearchParams();
-      if (input.name !== undefined) params.set("name", input.name);
-      if (input.address !== undefined) params.set("address", input.address);
-      if (input.city !== undefined) params.set("city", input.city);
-      if (input.state !== undefined) params.set("state", input.state);
-      if (input.zipCode !== undefined) params.set("zip_code", input.zipCode);
-      if (input.country !== undefined) params.set("country", input.country);
-      if (input.notes !== undefined) params.set("notes", input.notes);
-      if (input.locale !== undefined) params.set("locale", input.locale);
-      const qs = params.toString();
-      return apiPost(`/orders/${encodePath(input.orderId)}/generate-invoice${qs ? `?${qs}` : ""}`);
+      return apiPost(`/orders/${encodePath(input.orderId)}/generate-invoice${buildInvoiceQuery(input)}`);
     },
   },
   {
@@ -115,6 +105,12 @@ export const orderTools = [
       orderId: lsIdSchema.describe("The order ID to refund"),
       amount: z.number().int().min(1).describe("Refund amount in cents (e.g. 1000 = $10.00)"),
     }),
+    // Run the cap check ahead of the rate limiters (see `preflight` on
+    // RegisterableTool) so a rejected over-cap refund does not consume the
+    // caller's money-class and destructive budgets. The handler repeats the
+    // check for direct callers that bypass the wrapper; checkRefundAmount is
+    // pure, so running it twice is free.
+    preflight: (input: { amount: number }) => checkRefundAmount(input.amount),
     handler: async (input: { orderId: string; amount: number }) => {
       checkRefundAmount(input.amount);
       return apiPost(`/orders/${encodePath(input.orderId)}/refund`, {

@@ -2,6 +2,80 @@
 
 All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning follows [SEMVER.md](./SEMVER.md).
 
+## [0.11.0] -- 2026-08-07
+
+### Security
+
+- **`redactSecrets` no longer degrades to exponential traversal on a shared-reference payload.** The cycle guard tracks the ancestor path (entries removed on the way back up) so a merely *shared* object is redacted normally instead of being falsely reported as `[CIRCULAR]` -- but an ancestor set alone is O(paths), not O(nodes). A "diamond chain" holding two references to the same child at every level has 2^depth paths over depth+1 objects: measured at 3.2 seconds for 23 objects, doubling per level, which at the 32-level cap would block the stdio server for the better part of an hour from inside the audit path. A memo of completed subtrees restores linear behaviour. Reuse is gated on the cached entry having been computed with at least as much depth budget as the current position, so a subtree truncated near the cap is never replayed into a shallower slot where real (possibly secret-bearing) input belongs.
+
+### Added
+
+- **`validation_error` log/audit status.** Failure entries previously collapsed client mistakes into `exception`, the same bucket as upstream 5xx and genuine faults. The new `ToolInputError` is tagged `validation_error`, so a log scan at `LEMONSQUEEZY_LOG=error` can separate "an agent sent a malformed request" from "the server or upstream faulted". `guardrail_block` (operator policy refused it) is unchanged.
+- **`preflight` hook on the tool contract.** An input-dependent guardrail that runs ahead of the rate limiters. Both refund tools now declare the cap check there, so a rejected over-cap refund no longer consumes the caller's destructive and `money`-class budgets -- previously a client looping on an over-cap amount could exhaust a `money:2/h` allowance on calls that never left the process.
+- **Cross-store disclosure on `ls_list_stores`.** It has no `storeId` field and no parent ID to scope by, so `LEMONSQUEEZY_ALLOWED_STORE_IDS` does not gate it and it enumerates every store the API key can see. This was documented in the README but absent from the tool description an agent actually reads. `ls_list_affiliates` carried the note already.
+
+### Fixed
+
+- **Empty-PATCH guards on the remaining three update tools.** `ls_update_customer`, `ls_update_subscription`, and `ls_update_license_key` sent `attributes: {}` upstream when called with only an ID; `ls_update_webhook` had rejected this locally since 0.10.10. All four now reject before the round-trip and throw `ToolInputError`.
+- **`ls_update_subscription` and `ls_update_customer` descriptions now disclose their conditional-destructive behaviour.** A tool whose destructiveness depends on the input carries `destructiveHint: false`, because the MCP annotation is static and the verdict is per-call -- so an MCP client will not prompt, and the description is the only signal left. `ls_update_subscription` said nothing about pausing or plan switches; `ls_update_customer` mentioned auditing only to point at `ls_archive_customer`, never saying that setting `status: 'archived'` *here* is itself rate-limited and audited. A new invariant in `tools.test.ts` fails the build if any predicate-carrying tool omits the warning.
+- **`Retry-After: " "` no longer means "retry immediately".** `Number("")` is `0`, not `NaN`, so a whitespace-only header fell through the numeric branch and produced a 0 ms wait instead of the 1 s default.
+- **`include: ""` no longer emits a bare `?include=`.** The include schemas set `.max()` but no `.min()`, so an empty string is valid input and split to `[""]`.
+- **Sink response size limit measures UTF-8 bytes, not UTF-16 code units.** `String.length` undercounts every multi-byte character, so a non-ASCII body could exceed the 10 MB limit while reporting a char count under it -- and the message still said "bytes".
+- **A bare `{"error": "..."}` envelope is now read on the management API**, not just the License API, via the shared error handler.
+- **A throwing `isDestructive` predicate can no longer escape as an unhandled rejection.** It is evaluated outside the main try block so it stays in scope for the audit path on the error branch; it now has its own guard that fails closed (treats the call as destructive) and logs the fault.
+
+### Changed
+
+- **`apiRequest` and `licenseRequest` share one error path and one 2xx body reader.** Roughly 90 lines of near-identical parse/log/decorate logic collapsed to two helpers. `licenseRequest` still deliberately does not bust the API-key cache on 401, since it authenticates with the caller's license key rather than `LEMONSQUEEZY_API_KEY`.
+- **Both generate-invoice tools share one query builder** (`buildInvoiceQuery`) instead of duplicating an eight-field `URLSearchParams` block.
+- **Cross-store notes are generated from each module's `requiredFilters` array**, so the disclosure and the runtime gate cannot drift apart.
+- **`src/index.ts` is free of top-level await.** The version fallback used `await import("node:module")`, which the CJS single-binary build cannot emit; it survived only because both builds define `__VERSION__` and esbuild constant-folded the branch away. A static `createRequire` import removes the dependency on that folding -- verified by bundling to CJS with the define absent.
+
+### Documentation
+
+- `0` documented as a valid value for the refund cap and both rate limits (blocks everything; unset/empty means no limit).
+- `LEMONSQUEEZY_LOG` row now lists what each failure `status` means.
+- README's allowlist row no longer describes `ls_list_stores` as routing "by its own resource ID"; the two genuinely ungated list tools are called out separately from the ID-targeted ones.
+
+## [0.10.13] -- 2026-06-11
+
+### Added
+
+- **Cross-platform single-binary pipeline** (Scoop + Homebrew) via `scripts/build-binary.mjs` and `scripts/stage-release-asset.mjs`.
+
+### Fixed
+
+- **`npm test` runs every test file under POSIX sh**, not only nested ones -- an unquoted `**/*` glob skipped the top-level files.
+
+### Changed
+
+- Node engine requirement raised to `>=22`; dev-dependency vulnerabilities cleared.
+
+## [0.10.12] -- 2026-06-02
+
+### Fixed
+
+- **Release drift guard compares tag-object SHAs**, so resuming a partial release no longer false-aborts.
+- **`SKIP_LINT=1` escape hatch** for environments where the lint runner itself is broken.
+- **`release.sh` refuses to push if origin's tag drifted from local.**
+- README "Add to Yaw MCP" badge points at the https forwarder.
+
+### Added
+
+- End-to-end coverage for the refund-cap guard on both refund tools.
+
+## [0.10.11] -- 2026-05-28
+
+### Changed
+
+- **MCP Registry publish folded into `release.sh`**; `release.yml` and the remaining non-release workflows removed. `release.sh` is now the only release path.
+
+### Fixed
+
+- Confirmation prompt is tty-gated, so non-interactive runs no longer block.
+- `server.json` syncs unconditionally rather than only inside the version-bump branch.
+- Falls back to the `gh` auth token for MCP Registry authentication.
+
 ## [0.10.10] -- 2026-05-22
 
 ### Fixed
@@ -390,6 +464,10 @@ Hardening pass for unattended automation against live billing flows.
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
 [Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.9...HEAD
+[0.11.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.13...v0.11.0
+[0.10.13]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.12...v0.10.13
+[0.10.12]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.11...v0.10.12
+[0.10.11]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.10...v0.10.11
 [0.10.10]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.9...v0.10.10
 [0.10.9]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.8...v0.10.9
 [0.10.8]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.7...v0.10.8

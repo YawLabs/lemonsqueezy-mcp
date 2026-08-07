@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPost, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
+import { apiPost, buildInvoiceQuery, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
 import { checkRefundAmount } from "../guardrails.js";
 
 export const subscriptionInvoiceTools = [
@@ -90,18 +90,8 @@ export const subscriptionInvoiceTools = [
       notes?: string;
       locale?: string;
     }) => {
-      const params = new URLSearchParams();
-      if (input.name !== undefined) params.set("name", input.name);
-      if (input.address !== undefined) params.set("address", input.address);
-      if (input.city !== undefined) params.set("city", input.city);
-      if (input.state !== undefined) params.set("state", input.state);
-      if (input.zipCode !== undefined) params.set("zip_code", input.zipCode);
-      if (input.country !== undefined) params.set("country", input.country);
-      if (input.notes !== undefined) params.set("notes", input.notes);
-      if (input.locale !== undefined) params.set("locale", input.locale);
-      const qs = params.toString();
       return apiPost(
-        `/subscription-invoices/${encodePath(input.subscriptionInvoiceId)}/generate-invoice${qs ? `?${qs}` : ""}`,
+        `/subscription-invoices/${encodePath(input.subscriptionInvoiceId)}/generate-invoice${buildInvoiceQuery(input)}`,
       );
     },
   },
@@ -121,6 +111,9 @@ export const subscriptionInvoiceTools = [
       subscriptionInvoiceId: lsIdSchema.describe("The subscription invoice ID to refund"),
       amount: z.number().int().min(1).describe("Refund amount in cents (e.g. 1000 = $10.00)"),
     }),
+    // See the matching comment on ls_refund_order: the cap check runs ahead of
+    // the rate limiters so a rejection costs the caller no budget.
+    preflight: (input: { amount: number }) => checkRefundAmount(input.amount),
     handler: async (input: { subscriptionInvoiceId: string; amount: number }) => {
       checkRefundAmount(input.amount);
       return apiPost(`/subscription-invoices/${encodePath(input.subscriptionInvoiceId)}/refund`, {

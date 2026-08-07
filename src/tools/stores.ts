@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getHandler, listHandler, lsIdSchema } from "../api.js";
+import { crossStoreUngatedNote, getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const storeTools = [
   {
@@ -28,8 +28,9 @@ export const storeTools = [
   {
     name: "ls_list_stores",
     authorityClass: "read" as const,
-    description:
-      "List all stores for the authenticated user. Results are paginated — check meta.page in the response for currentPage, lastPage, and total.",
+    description: `List all stores for the authenticated user. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. ${crossStoreUngatedNote(
+      "every store the API key can see, including stores outside the allowlist",
+    )}`,
     annotations: {
       title: "List stores",
       readOnlyHint: true,

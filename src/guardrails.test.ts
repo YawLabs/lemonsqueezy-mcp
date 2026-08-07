@@ -114,6 +114,17 @@ describe("checkRefundAmount", () => {
       assert.throws(() => checkRefundAmount(1), /must be a non-negative number/);
     });
   });
+
+  it("a cap of 0 blocks every refund (0 is a valid value, not 'unset')", () => {
+    // readNumber() treats "" / unset as null (no cap) but accepts "0" as a
+    // real cap. The refund schema enforces amount >= 1, so a cap of 0 is a
+    // deliberate kill switch. Pinned because "0 means unlimited" is the
+    // opposite convention and an easy regression.
+    withEnv({ LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS: "0" }, () => {
+      assert.throws(() => checkRefundAmount(1), GuardrailError);
+      assert.doesNotThrow(() => checkRefundAmount(0));
+    });
+  });
 });
 
 describe("checkDestructiveRateLimit", () => {
@@ -133,6 +144,22 @@ describe("checkDestructiveRateLimit", () => {
       checkDestructiveRateLimit(t + 1);
       checkDestructiveRateLimit(t + 2);
       assert.throws(() => checkDestructiveRateLimit(t + 3), GuardrailError);
+    });
+  });
+
+  it("a limit of 0 blocks every destructive call", () => {
+    // Same convention as the refund cap: "" / unset means no limit, "0" means
+    // block everything. Documented in the README env table.
+    withEnv({ LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT: "0" }, () => {
+      assert.throws(() => checkDestructiveRateLimit(1_000_000), GuardrailError);
+    });
+  });
+
+  it("a per-class limit of 0 blocks every call in that class", () => {
+    withEnv({ LEMONSQUEEZY_RATE_LIMIT_PER_CLASS: "money:0/h" }, () => {
+      assert.throws(() => checkClassRateLimit("money", 1_000_000), GuardrailError);
+      // Unlisted classes remain unaffected.
+      assert.doesNotThrow(() => checkClassRateLimit("read", 1_000_000));
     });
   });
 

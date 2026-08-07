@@ -30,7 +30,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { z } from "zod";
 import { _resetAuditBufferForTest, readAuditEntries } from "./audit-buffer.js";
-import { _resetGuardrailsForTest } from "./guardrails.js";
+import { _resetGuardrailsForTest, GuardrailError, ToolInputError } from "./guardrails.js";
 import { createToolHandler, type McpToolResult, type RegisterableTool, readAuditLogResource } from "./wrapper.js";
 
 const ENV_KEYS = [
@@ -404,6 +404,189 @@ describe("createToolHandler -- registration wrapper", () => {
       _resetGuardrailsForTest();
       const r3 = await wrapped({});
       assert.equal(r3.isError, undefined);
+    });
+  });
+
+  describe("preflight guardrail (refund-cap shape)", () => {
+    // Mirrors ls_refund_order: a per-tool, input-dependent guardrail that must
+    // reject BEFORE the rate limiters record a timestamp. When the cap check
+    // lived only inside the handler it ran after both limiters, so a client
+    // looping on an over-cap amount burned its whole money:N/h allowance on
+    // calls that never left the process.
+    function makeRefundTool(capCents: number) {
+      return makeTool({
+        name: "ls_refund_order",
+        authorityClass: "money",
+        annotations: { destructiveHint: true },
+        preflight: (input) => {
+          const amount = input.amount as number;
+          if (amount > capCents) {
+            throw new GuardrailError(`Refund amount ${amount} cents exceeds LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS`);
+          }
+        },
+      });
+    }
+
+    it("rejects before the handler runs", async () => {
+      const tool = makeRefundTool(10_000);
+      const wrapped = createToolHandler(tool);
+      const result = await wrapped({ orderId: "1", amount: 10_001 });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /exceeds LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS/);
+      assert.equal(tool.calls.length, 0);
+    });
+
+    it("does NOT consume the destructive rate-limit bucket when it rejects", async () => {
+      process.env.LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT = "1";
+      const tool = makeRefundTool(10_000);
+      const wrapped = createToolHandler(tool);
+
+      // Three rejected over-cap attempts must cost nothing.
+      for (let i = 0; i < 3; i++) {
+        const blocked = await wrapped({ orderId: "1", amount: 10_001 });
+        assert.equal(blocked.isError, true);
+      }
+
+      // The single-call destructive budget is still intact.
+      const allowed = await wrapped({ orderId: "1", amount: 500 });
+      assert.equal(allowed.isError, undefined, "an in-cap refund must still be allowed after rejected attempts");
+      assert.equal(tool.calls.length, 1);
+    });
+
+    it("does NOT consume the per-class rate-limit bucket when it rejects", async () => {
+      process.env.LEMONSQUEEZY_RATE_LIMIT_PER_CLASS = "money:2/h";
+      const tool = makeRefundTool(10_000);
+      const wrapped = createToolHandler(tool);
+
+      for (let i = 0; i < 5; i++) {
+        assert.equal((await wrapped({ orderId: "1", amount: 99_999 })).isError, true);
+      }
+
+      // money:2/h is untouched -- two real refunds still go through.
+      assert.equal((await wrapped({ orderId: "1", amount: 100 })).isError, undefined);
+      assert.equal((await wrapped({ orderId: "2", amount: 100 })).isError, undefined);
+      const third = await wrapped({ orderId: "3", amount: 100 });
+      assert.equal(third.isError, true);
+      assert.match(third.content[0]?.text ?? "", /Class.*rate limit exceeded/i);
+    });
+
+    it("still runs AFTER the class-disable gate", async () => {
+      // A disabled class must not leak a cap-specific error message; the
+      // class rejection is the more general one and comes first.
+      process.env.LEMONSQUEEZY_DISABLE_CLASSES = "money";
+      const tool = makeRefundTool(10_000);
+      const wrapped = createToolHandler(tool);
+      const result = await wrapped({ orderId: "1", amount: 10_001 });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /authority class.*disabled/i);
+    });
+
+    it("records the rejection in the audit ring as a guardrail_block", async () => {
+      const tool = makeRefundTool(10_000);
+      const wrapped = createToolHandler(tool);
+      await wrapped({ orderId: "1", amount: 10_001 });
+      const entries = readAuditEntries();
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0]?.status, "guardrail_block");
+      assert.equal(entries[0]?.audit, true);
+    });
+  });
+
+  describe("error classification", () => {
+    // Three failure causes must be distinguishable in the log/audit stream:
+    // operator policy refused it, the client sent a bad request, or something
+    // faulted. Collapsing the middle one into `exception` (the old behaviour
+    // for every empty-PATCH guard) buries client mistakes in the same bucket
+    // an operator scans for real faults.
+    const cases = [
+      { label: "GuardrailError", err: () => new GuardrailError("policy says no"), status: "guardrail_block" },
+      { label: "ToolInputError", err: () => new ToolInputError("nothing to change"), status: "validation_error" },
+      { label: "plain Error", err: () => new Error("upstream 502"), status: "exception" },
+    ] as const;
+
+    for (const { label, err, status } of cases) {
+      it(`a handler throwing ${label} is audited as ${status}`, async () => {
+        const tool = makeTool({
+          name: "ls_update_license_key",
+          authorityClass: "key",
+          annotations: { destructiveHint: true },
+          handler: async () => {
+            throw err();
+          },
+        });
+        const wrapped = createToolHandler(tool);
+        const result = await wrapped({ licenseKeyId: "1" });
+        assert.equal(result.isError, true);
+        const entries = readAuditEntries();
+        assert.equal(entries.length, 1);
+        assert.equal(entries[0]?.status, status);
+      });
+    }
+
+    it("a validation_error still counts as an error entry at LEMONSQUEEZY_LOG=error", async () => {
+      // The new status tag must be in logger's ERROR_STATUS_TAGS, otherwise
+      // adding the classification would silently DROP these lines for anyone
+      // running at the error level -- strictly worse than the old behaviour.
+      process.env.LEMONSQUEEZY_LOG = "error";
+      const lines: string[] = [];
+      // biome-ignore lint/suspicious/noExplicitAny: minimal stderr stub
+      const originalWrite = process.stderr.write.bind(process.stderr) as any;
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+        return true;
+        // biome-ignore lint/suspicious/noExplicitAny: matches the stubbed type
+      }) as any;
+      try {
+        const tool = makeTool({
+          name: "ls_update_customer",
+          authorityClass: "pii",
+          annotations: { destructiveHint: false },
+          handler: async () => {
+            throw new ToolInputError("nothing to change");
+          },
+        });
+        await createToolHandler(tool)({ customerId: "1" });
+      } finally {
+        process.stderr.write = originalWrite;
+      }
+      const matching = lines.filter((l) => l.includes("ls_update_customer"));
+      assert.equal(matching.length, 1, "validation_error must still be emitted at LOG=error");
+      assert.equal(JSON.parse(matching[0]?.trim() ?? "").status, "validation_error");
+    });
+  });
+
+  describe("isDestructive predicate faults", () => {
+    it("a throwing predicate does not escape, and the call is treated as destructive", async () => {
+      // The predicate is evaluated outside the main try (it must stay in
+      // scope for the catch branch), so a throw there would surface as an
+      // unhandled rejection and destabilize the stdio server. It gets its own
+      // guard that fails CLOSED -- the call engages the destructive limiter
+      // and the audit ring rather than slipping past both.
+      process.env.LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT = "1";
+      const tool = makeTool({
+        name: "ls_update_license_key",
+        authorityClass: "key",
+        annotations: { destructiveHint: false },
+        isDestructive: () => {
+          throw new Error("predicate blew up");
+        },
+      });
+      const wrapped = createToolHandler(tool);
+
+      const first = await wrapped({ licenseKeyId: "1" });
+      assert.equal(first.isError, undefined, "the call itself must still complete");
+      assert.equal(tool.calls.length, 1);
+
+      // Fail-closed: it was counted as destructive, so the 1-call budget is spent.
+      const second = await wrapped({ licenseKeyId: "2" });
+      assert.equal(second.isError, true);
+      assert.match(second.content[0]?.text ?? "", /Destructive call rate limit/);
+
+      // ...and it was audited.
+      const entries = readAuditEntries();
+      assert.equal(entries.length, 2);
+      assert.equal(entries[1]?.tool, "ls_update_license_key");
+      assert.equal(entries[1]?.audit, true);
     });
   });
 

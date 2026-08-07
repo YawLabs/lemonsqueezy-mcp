@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadGuardrailOptions } from "./guardrails.js";
@@ -27,12 +28,21 @@ import { variantTools } from "./tools/variants.js";
 import { webhookTools } from "./tools/webhooks.js";
 import { createToolHandler, type RegisterableTool, readAuditLogResource } from "./wrapper.js";
 
-// Injected at build time by esbuild; falls back to reading package.json for tsc builds.
+// Injected at build time by esbuild (`define: { __VERSION__ }` in both
+// build.mjs and scripts/build-binary.mjs); falls back to reading package.json
+// for a plain `tsc` build, where the define is absent.
+//
+// The fallback must NOT use top-level await: the single-binary build bundles
+// to CJS (scripts/build-binary.mjs), and esbuild cannot emit top-level await
+// in CJS output. A static `createRequire` import keeps this expression
+// synchronous so the fallback survives regardless of whether the `__VERSION__`
+// define lets esbuild constant-fold the branch away. Same constraint applies
+// to the server.connect() call at the bottom of this file.
 declare const __VERSION__: string | undefined;
 const version =
   typeof __VERSION__ !== "undefined"
     ? __VERSION__
-    : ((await import("node:module")).createRequire(import.meta.url)("../package.json") as { version: string }).version;
+    : (createRequire(import.meta.url)("../package.json") as { version: string }).version;
 
 // ─── CLI subcommands (run instead of MCP server) ───
 
@@ -119,8 +129,10 @@ server.resource(
 );
 
 const transport = new StdioServerTransport();
-// Not top-level await: the single-binary build bundles to CJS via esbuild,
-// which cannot emit top-level await. Promise-chain the connect instead.
+// Not top-level await: the single-binary build bundles to CJS via esbuild
+// (scripts/build-binary.mjs), which cannot emit top-level await. Promise-chain
+// the connect instead. This file must stay free of top-level await entirely --
+// see the version-fallback note at the top.
 server.connect(transport).catch((err: unknown) => {
   process.stderr.write(`lemonsqueezy-mcp: ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);

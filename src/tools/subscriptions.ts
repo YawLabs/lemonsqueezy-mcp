@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiDelete, apiPatch, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
+import { ToolInputError } from "../guardrails.js";
 
 export const subscriptionTools = [
   {
@@ -73,7 +74,7 @@ export const subscriptionTools = [
     name: "ls_update_subscription",
     authorityClass: "recurring" as const,
     description:
-      "Update a subscription. Can change the variant (plan switch), pause/unpause, set billing anchor, or update invoice details. Use ls_cancel_subscription for cancellation.",
+      "Update a subscription. Can change the variant (plan switch), pause/unpause, set billing anchor, or update invoice details. Pausing (`pause: 'void'` or `'free'`) or switching plan (`variantId`) is customer-impacting and is treated as destructive (rate-limited and audited); resuming and the billing-neutral edits are not. Use ls_cancel_subscription for cancellation.",
     annotations: {
       title: "Update subscription",
       readOnlyHint: false,
@@ -137,6 +138,16 @@ export const subscriptionTools = [
       if (input.invoiceImmediately !== undefined) attributes.invoice_immediately = input.invoiceImmediately;
       if (input.disableProrations !== undefined) attributes.disable_prorations = input.disableProrations;
       if (input.trialEndsAt !== undefined) attributes.trial_ends_at = input.trialEndsAt;
+
+      // An empty PATCH is a meaningless call that the API would reject with a
+      // less clear message. Reject locally so the caller sees what they did
+      // wrong before a round-trip. Matches ls_update_webhook /
+      // ls_update_customer / ls_update_license_key.
+      if (Object.keys(attributes).length === 0) {
+        throw new ToolInputError(
+          "ls_update_subscription requires at least one of: variantId, pause, cancelled, billingAnchor, invoiceImmediately, disableProrations, trialEndsAt",
+        );
+      }
 
       return apiPatch(`/subscriptions/${encodePath(input.subscriptionId)}`, {
         data: {

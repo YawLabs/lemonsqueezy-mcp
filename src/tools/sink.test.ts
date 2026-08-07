@@ -295,6 +295,22 @@ describe("Sink tools error paths", () => {
     assert.match(result.error ?? "", /11534336/); // 11 * 1024 * 1024
   });
 
+  it("post-read size guard measures UTF-8 bytes, not UTF-16 code units", async () => {
+    // Each of these is 1 UTF-16 code unit but 3 UTF-8 bytes. A body of
+    // 4 million of them is ~4M chars (under the 10 MB limit if you measure
+    // String.length) but ~12 MB on the wire. Measuring chars would let it
+    // through and report the wrong number in the error message.
+    const multibyte = "あ".repeat(4 * 1024 * 1024);
+    assert.ok(multibyte.length < 10 * 1024 * 1024, "precondition: char count is under the limit");
+    assert.ok(Buffer.byteLength(multibyte, "utf8") > 10 * 1024 * 1024, "precondition: byte count is over the limit");
+    stubFetch({ status: 200, text: multibyte });
+    const tool = findTool("ls_sink_stats");
+    const result = await tool.handler({});
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /body too large/);
+    assert.match(result.error ?? "", new RegExp(String(Buffer.byteLength(multibyte, "utf8"))));
+  });
+
   it("2xx with a lying Content-Length still trips the post-read size guard", async () => {
     // Belt-and-braces against a sink (or upstream proxy) that under-reports
     // Content-Length. Pre-read guard sees 100 and lets the read proceed;

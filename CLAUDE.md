@@ -4,8 +4,10 @@ LemonSqueezy MCP server — manage your store, subscriptions, customers, and lic
 
 ## Architecture
 
-- `src/index.ts` — Entry point. Registers all tools with McpServer, handles version subcommand.
-- `src/api.ts` — LemonSqueezy API client. Bearer token auth, JSON:API format, 30s timeout. Also exports `licenseRequest` for the License API (different auth).
+- `src/index.ts` — Entry point. Registers all tools with McpServer, handles version subcommand. Must stay free of top-level await (the single-binary build emits CJS).
+- `src/api.ts` — LemonSqueezy API client. Bearer token auth, JSON:API format, 30s timeout. Also exports `licenseRequest` for the License API (different auth), plus the shared `buildQuery` / `buildInvoiceQuery` / cross-store-note helpers used by the tool modules.
+- `src/wrapper.ts` — Sits between the SDK's registered handler and each tool handler. Runs the guardrails in a load-bearing order, then logs and audits. `createToolHandler` is the only production caller path.
+- `src/guardrails.ts` — Store allowlist, refund cap, destructive + per-authority-class rate limits. All opt-in via env.
 - `src/tools/*.ts` — Tool definitions as exported arrays. Each file covers one API resource domain.
 
 ## Build
@@ -18,17 +20,23 @@ LemonSqueezy MCP server — manage your store, subscriptions, customers, and lic
 
 ## Key patterns
 
-- Tools are arrays of `{ name, description, annotations, inputSchema, handler }` objects
+- Tools are arrays of `{ name, description, authorityClass, annotations, inputSchema, handler }` objects
 - All tool names prefixed with `ls_`
 - Zod schemas for input validation with `.describe()` for each field
 - Every tool has MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`
 - JSON:API query params built via `buildQuery({ include, filter, page })`
 - Version injected at build time via esbuild `define`
+- Optional per-tool hooks on the wrapper: `isDestructive(input)` (per-call destructive verdict), `requiredFilters` (store-allowlist scoping for list-by-parent tools), and `preflight(input)` (input guardrail that must reject *before* the rate limiters — the refund cap uses it)
+- A list tool with neither a `storeId` field nor `requiredFilters` is completely ungated by the store allowlist. `tools.test.ts` fails on any new one; the two known cases must disclose it via `crossStoreUngatedNote()`
+- Update tools reject an ID-only PATCH locally rather than paying a round-trip for an upstream 422, throwing `ToolInputError` so the wrapper logs it as `validation_error` (client mistake) rather than `exception` (something faulted) or `guardrail_block` (operator policy)
+- `redact.ts` guards cycles with an ancestor path *plus* a memo of completed subtrees — the ancestor set alone is O(paths), which is exponential on a shared-reference DAG
 
 ## Release process
 
 Releases run **locally** from a clean checkout of `main` via `./release.sh <version>`, which does steps 1-7 on the workstation -- lint, test, build, bump, commit, tag, push, npm publish (with `--provenance`), GitHub release, verify. Requires `npm login --auth-type=web` and `gh auth login` to be done once on the machine. Idempotent; safe to re-run after partial failures.
 
-There is **no GitHub Actions release workflow** in this repo: `.github/` holds only `CODEOWNERS` and `dependabot.yml`. CI-on-tag-push via `.github/workflows/release.yml` (the YawLabs default -- the push triggers `release.sh` in CI mode, authenticating to npm via the org-level `NPM_TOKEN` secret) is the intended end state but is not wired up here today; until it is, `release.sh` is the only path.
+There is **no GitHub Actions release workflow** in this repo: `.github/` holds only `CODEOWNERS`. CI-on-tag-push (the YawLabs default -- a tag-triggered release workflow runs `release.sh` in CI mode, authenticating to npm via the org-level `NPM_TOKEN` secret) is the intended end state but is not wired up here today; until it is, `release.sh` is the only path.
 
-There is also no push/PR CI and no nightly integration run. Lint, typecheck, and tests must pass locally before commit.
+There is also no push- or PR-triggered CI, no Dependabot, and no nightly integration run — every workflow and the Dependabot config were removed (`823d558`). Lint, typecheck, and tests must pass locally before commit. `npm run test:integration` is on demand only; it needs `LEMONSQUEEZY_TEST_API_KEY` + `LEMONSQUEEZY_TEST_STORE_ID` and writes throwaway `ci-test-` resources to a real store.
+
+**Run `npm run test:integration` before cutting a release whenever `src/api.ts` or a tool handler changed.** The unit suite mocks `globalThis.fetch`, so it cannot see upstream schema drift — and `api.ts` sits under every single tool call, meaning a regression there is invisible locally and total in production. Add a `## [X.Y.Z]` section to `CHANGELOG.md` too: `release.sh` extracts it for the GitHub release body and silently falls back to bare commit subjects when it's missing.

@@ -18,6 +18,10 @@ const JITTER_FRACTION = 0.25;
 export function parseRetryAfterMs(header: string | null): number {
   if (!header) return DEFAULT_RETRY_WAIT_MS;
   const trimmed = header.trim();
+  // A whitespace-only header is absent, not "retry immediately". Without this
+  // guard `Number("")` is 0 (not NaN), so " " fell through the numeric branch
+  // and returned a 0ms wait instead of the 1s default.
+  if (trimmed === "") return DEFAULT_RETRY_WAIT_MS;
   const seconds = Number(trimmed);
   if (!Number.isNaN(seconds)) {
     return seconds >= 0 ? seconds * 1000 : DEFAULT_RETRY_WAIT_MS;

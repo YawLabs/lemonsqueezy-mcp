@@ -59,6 +59,18 @@ describe("parseRetryAfterMs", () => {
   it("falls back on garbage", () => {
     assert.equal(parseRetryAfterMs("not-a-date"), 1000);
   });
+  it("treats a whitespace-only header as absent, not as zero", () => {
+    // `Number("")` is 0, not NaN, so a whitespace-only header used to slip
+    // through the numeric branch and produce a 0ms wait -- an immediate
+    // retry into the same rate limit instead of the 1s default.
+    assert.equal(parseRetryAfterMs(" "), 1000);
+    assert.equal(parseRetryAfterMs("\t"), 1000);
+    assert.equal(parseRetryAfterMs("   \n "), 1000);
+  });
+  it("still honours an explicit zero", () => {
+    assert.equal(parseRetryAfterMs("0"), 0);
+    assert.equal(parseRetryAfterMs(" 0 "), 0);
+  });
 });
 
 describe("isAbortTimeoutError", () => {
@@ -184,6 +196,37 @@ describe("fetchWithRetry", () => {
     assert.equal(res.status, 500);
     assert.equal(calls.length, 1);
     assert.equal(sleep.sleeps.length, 0);
+  });
+
+  it("DOES retry 429 on a non-idempotent request", async () => {
+    // Deliberate asymmetry with the 5xx branch, and the one api.ts documents
+    // above `const idempotent = ...`: a 429 means the server rejected the
+    // request before acting on it, so replaying a POST (including a refund)
+    // cannot double-apply. Gating this branch on `idempotent` would look like
+    // a tidy-up but would stop refunds retrying through a rate-limit blip.
+    const { fn, calls } = fakeFetch([err429(), err429(), ok()]);
+    const sleep = fakeSleep();
+    const res = await fetchWithRetry(
+      "https://x",
+      { method: "POST" },
+      { idempotent: false, fetchImpl: fn, sleep: sleep.fn },
+    );
+    assert.equal(res.status, 200);
+    assert.equal(calls.length, 3, "429 must be retried regardless of idempotency");
+  });
+
+  it("still does not retry 5xx on a non-idempotent request (429 asymmetry is intentional)", async () => {
+    // Paired with the test above so the contrast is explicit: same method,
+    // same idempotent flag, different status -> different behaviour.
+    const { fn, calls } = fakeFetch([err500(), ok()]);
+    const sleep = fakeSleep();
+    const res = await fetchWithRetry(
+      "https://x",
+      { method: "POST" },
+      { idempotent: false, fetchImpl: fn, sleep: sleep.fn },
+    );
+    assert.equal(res.status, 500);
+    assert.equal(calls.length, 1);
   });
 
   it("retries timeout on idempotent request", async () => {

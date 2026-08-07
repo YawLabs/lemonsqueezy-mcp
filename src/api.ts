@@ -54,7 +54,13 @@ export function buildQuery(params?: {
   const parts: string[] = [];
 
   if (params.include?.length) {
-    parts.push(`include=${encodeURIComponent(params.include.map((s) => s.trim()).join(","))}`);
+    // Drop empty/whitespace-only segments so `include: ""` (which Zod accepts
+    // -- the schemas set .max() but no .min()) splits to [""] and produces no
+    // param at all, rather than a bare `?include=` the API has to ignore.
+    const segments = params.include.map((s) => s.trim()).filter(Boolean);
+    if (segments.length > 0) {
+      parts.push(`include=${encodeURIComponent(segments.join(","))}`);
+    }
   }
 
   if (params.filter) {
@@ -81,6 +87,81 @@ export function buildQuery(params?: {
 
 function decorateError(error: string, requestId: string | undefined): string {
   return requestId ? `${error} (request_id: ${requestId})` : error;
+}
+
+/**
+ * Union of the two error envelopes this package sees. The management API
+ * (JSON:API) uses `errors[].detail`; the License API uses a bare `error`
+ * string. Reading both in one helper lets `apiRequest` and `licenseRequest`
+ * share the error path -- the management API never populates `error`, so
+ * the extra fallback is inert there.
+ */
+type ErrorEnvelope = { errors?: Array<{ detail?: string }>; error?: string };
+
+/**
+ * Shared non-2xx handling for both API clients: read the body once, prefer a
+ * structured error message over raw text, log at the http_call event, and
+ * return the uniform ApiResponse failure shape.
+ *
+ * Extracted from the two near-identical blocks that previously lived in
+ * `apiRequest` and `licenseRequest`. Callers keep their own auth-specific
+ * side effects (e.g. the 401/403 key-cache bust) before calling in.
+ */
+async function handleErrorResponse<T>(
+  res: Response,
+  route: { method: string; path: string },
+  latency_ms: number,
+  requestId: string | undefined,
+): Promise<ApiResponse<T>> {
+  const errorBody = await res.text();
+  try {
+    const parsed = JSON.parse(errorBody) as ErrorEnvelope;
+    const detail = parsed.errors?.[0]?.detail ?? parsed.error ?? errorBody;
+    logEvent({
+      event: "http_call",
+      method: route.method,
+      path: route.path,
+      status: res.status,
+      latency_ms,
+      request_id: requestId,
+      error: detail,
+    });
+    return {
+      ok: false,
+      status: res.status,
+      data: parsed as T,
+      error: decorateError(detail, requestId),
+      requestId,
+    };
+  } catch {
+    logEvent({
+      event: "http_call",
+      method: route.method,
+      path: route.path,
+      status: res.status,
+      latency_ms,
+      request_id: requestId,
+      error: errorBody,
+    });
+    return {
+      ok: false,
+      status: res.status,
+      error: decorateError(errorBody, requestId),
+      requestId,
+    };
+  }
+}
+
+/**
+ * Read a 2xx body as text first so an empty or whitespace-only payload (some
+ * PATCH/POST endpoints return 200 with no body) yields `undefined` instead of
+ * blowing up `res.json()`. Malformed JSON on a 2xx is still a server bug and
+ * surfaces as a thrown SyntaxError, which the registration wrapper catches as
+ * an `exception`.
+ */
+async function readJsonBody<T>(res: Response): Promise<T | undefined> {
+  const bodyText = await res.text();
+  return bodyText.trim() ? (JSON.parse(bodyText) as T) : undefined;
 }
 
 /**
@@ -118,12 +199,20 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
   }
 
   const url = `${BASE_URL}${path}`;
-  // PATCH is excluded from the retry pool on purpose. JSON:API PATCH is
+  // `idempotent` gates the 5xx and network-error retry branches only.
+  //
+  // PATCH is excluded from that pool on purpose. JSON:API PATCH is
   // semantically idempotent (you're transitioning to a known target state),
   // but a transient 5xx mid-request leaves us unable to tell whether the
   // server applied the change or not, and replaying could double-bill on
-  // anything that triggers proration. Treat only GET and DELETE as safe to
-  // replay; PATCH and POST go through once.
+  // anything that triggers proration. So for 5xx and network errors, only
+  // GET and DELETE are replayed; PATCH and POST go through once.
+  //
+  // 429 is deliberately NOT gated by this flag -- see the retry-after branch
+  // in `fetchWithRetry`. A 429 means the request was rejected before the
+  // server acted on it, so replaying a POST (including a refund) after the
+  // advertised Retry-After cannot double-apply. Every method is retried on
+  // 429.
   const idempotent = method === "GET" || method === "DELETE";
 
   let res: Response;
@@ -153,43 +242,7 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
     if (res.status === 401 || res.status === 403) {
       invalidateApiKeyCache();
     }
-    const errorBody = await res.text();
-    try {
-      const parsed = JSON.parse(errorBody);
-      const detail = (parsed as { errors?: Array<{ detail?: string }> }).errors?.[0]?.detail ?? errorBody;
-      logEvent({
-        event: "http_call",
-        method,
-        path,
-        status: res.status,
-        latency_ms,
-        request_id: requestId,
-        error: detail,
-      });
-      return {
-        ok: false,
-        status: res.status,
-        data: parsed as T,
-        error: decorateError(detail, requestId),
-        requestId,
-      };
-    } catch {
-      logEvent({
-        event: "http_call",
-        method,
-        path,
-        status: res.status,
-        latency_ms,
-        request_id: requestId,
-        error: errorBody,
-      });
-      return {
-        ok: false,
-        status: res.status,
-        error: decorateError(errorBody, requestId),
-        requestId,
-      };
-    }
+    return handleErrorResponse<T>(res, { method, path }, latency_ms, requestId);
   }
 
   logEvent({
@@ -205,14 +258,7 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
     return { ok: true, status: res.status, requestId };
   }
 
-  // Read as text first so an empty or whitespace-only 2xx body (some
-  // PATCH/POST endpoints can return 200 with no payload) doesn't blow up
-  // `res.json()`. Malformed JSON on a 2xx is still a server bug and surfaces
-  // as a thrown SyntaxError, which the registration wrapper in index.ts
-  // catches as an `exception`.
-  const bodyText = await res.text();
-  const data = bodyText.trim() ? (JSON.parse(bodyText) as T) : undefined;
-  return { ok: true, status: res.status, data, requestId };
+  return { ok: true, status: res.status, data: await readJsonBody<T>(res), requestId };
 }
 
 /**
@@ -260,44 +306,9 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
   const requestId = res.headers.get("x-request-id") ?? undefined;
 
   if (!res.ok) {
-    const errorBody = await res.text();
-    try {
-      const parsed = JSON.parse(errorBody);
-      const p = parsed as { errors?: Array<{ detail?: string }>; error?: string };
-      const detail = p.errors?.[0]?.detail ?? p.error ?? errorBody;
-      logEvent({
-        event: "http_call",
-        method: "POST",
-        path,
-        status: res.status,
-        latency_ms,
-        request_id: requestId,
-        error: detail,
-      });
-      return {
-        ok: false,
-        status: res.status,
-        data: parsed as T,
-        error: decorateError(detail, requestId),
-        requestId,
-      };
-    } catch {
-      logEvent({
-        event: "http_call",
-        method: "POST",
-        path,
-        status: res.status,
-        latency_ms,
-        request_id: requestId,
-        error: errorBody,
-      });
-      return {
-        ok: false,
-        status: res.status,
-        error: decorateError(errorBody, requestId),
-        requestId,
-      };
-    }
+    // No key-cache bust here: the License API authenticates with the license
+    // key from the caller's input, not the LEMONSQUEEZY_API_KEY the cache holds.
+    return handleErrorResponse<T>(res, { method: "POST", path }, latency_ms, requestId);
   }
 
   logEvent({
@@ -309,11 +320,7 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
     request_id: requestId,
   });
 
-  // Same defensive read as apiRequest -- empty or whitespace-only 2xx bodies
-  // parse to undefined instead of throwing on `res.json()`.
-  const bodyText = await res.text();
-  const data = bodyText.trim() ? (JSON.parse(bodyText) as T) : undefined;
-  return { ok: true, status: res.status, data, requestId };
+  return { ok: true, status: res.status, data: await readJsonBody<T>(res), requestId };
 }
 
 /** Create a handler for GET /endpoint/:id with optional include. */
@@ -352,6 +359,68 @@ export function listHandler(endpoint: string, filterMap: Record<string, string> 
     return apiGet(`${endpoint}${query}`);
   };
   return Object.assign(handler, { filterMap });
+}
+
+/**
+ * Input-key -> API-key mapping for the invoice-detail query params shared by
+ * `ls_generate_order_invoice` and `ls_generate_subscription_invoice`. Both
+ * endpoints take the same eight fields on the query string, not in a body.
+ * Declaration order is the emitted param order.
+ */
+const INVOICE_FIELD_MAP = {
+  name: "name",
+  address: "address",
+  city: "city",
+  state: "state",
+  zipCode: "zip_code",
+  country: "country",
+  notes: "notes",
+  locale: "locale",
+} as const;
+
+export type InvoiceDetails = Partial<Record<keyof typeof INVOICE_FIELD_MAP, string>>;
+
+/**
+ * Build the `?name=...&zip_code=...` query string for the two generate-invoice
+ * endpoints. Returns "" when no invoice details were supplied, so callers can
+ * append it unconditionally.
+ */
+export function buildInvoiceQuery(input: InvoiceDetails): string {
+  const params = new URLSearchParams();
+  for (const [inputKey, apiKey] of Object.entries(INVOICE_FIELD_MAP)) {
+    const value = input[inputKey as keyof InvoiceDetails];
+    if (value !== undefined) params.set(apiKey, value);
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+// ─── Cross-store disclosure notes (appended to list-tool descriptions) ───
+//
+// LEMONSQUEEZY_ALLOWED_STORE_IDS cannot fully scope a list endpoint that has
+// no storeId field -- see the header comment in `guardrails.ts`. These two
+// helpers keep the disclosure identical across every affected tool so a
+// reworded copy in one file can't drift from the rest.
+
+const CROSS_STORE_TRAILER =
+  "Pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.";
+
+/**
+ * Disclosure for a list tool that declares `requiredFilters`: the allowlist
+ * forces a parent-ID filter, but that parent can still belong to a
+ * non-allowed store.
+ */
+export function crossStoreFilterNote(filters: readonly string[]): string {
+  return `Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool requires at least one of: ${filters.join(", ")}. Even with that set, ${CROSS_STORE_TRAILER}`;
+}
+
+/**
+ * Disclosure for a list tool the allowlist cannot gate at all -- no storeId
+ * field and no parent ID to scope by (`ls_list_stores`, `ls_list_affiliates`).
+ * `returns` describes what leaks, e.g. "every store the API key can see".
+ */
+export function crossStoreUngatedNote(returns: string): string {
+  return `Cross-store note: LEMONSQUEEZY_ALLOWED_STORE_IDS does NOT gate this tool -- it has no storeId field and no parent ID filter to scope by, so it returns ${returns}. ${CROSS_STORE_TRAILER}`;
 }
 
 export async function apiGet<T = unknown>(path: string): Promise<ApiResponse<T>> {

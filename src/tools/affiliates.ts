@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getHandler, listHandler, lsIdSchema } from "../api.js";
+import { crossStoreUngatedNote, getHandler, listHandler, lsIdSchema } from "../api.js";
 
 export const affiliateTools = [
   {
@@ -26,8 +26,9 @@ export const affiliateTools = [
   {
     name: "ls_list_affiliates",
     authorityClass: "read" as const,
-    description:
-      "List all affiliates for the authenticated user's stores, optionally filtered by user email. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool can still return affiliates tied to non-allowed stores -- the endpoint has no parent ID filter to scope by. Pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.",
+    description: `List all affiliates for the authenticated user's stores, optionally filtered by user email. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. ${crossStoreUngatedNote(
+      "affiliates tied to every store the API key can see, including non-allowed ones",
+    )}`,
     annotations: {
       title: "List affiliates",
       readOnlyHint: true,

@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { apiGet, apiPatch, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
+import { apiGet, apiPatch, crossStoreFilterNote, encodePath, getHandler, listHandler, lsIdSchema } from "../api.js";
+
+// Drives both `requiredFilters` and the description disclosure -- see prices.ts.
+const LIST_SUBSCRIPTION_ITEMS_FILTERS = ["subscriptionId", "priceId"] as const;
 
 export const subscriptionItemTools = [
   {
@@ -26,8 +29,7 @@ export const subscriptionItemTools = [
   {
     name: "ls_list_subscription_items",
     authorityClass: "read" as const,
-    description:
-      "List all subscription items, optionally filtered by subscription or price. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. Cross-store note: when LEMONSQUEEZY_ALLOWED_STORE_IDS is set, this tool requires at least one of: subscriptionId, priceId. Even with that set, pair with a scoped LemonSqueezy API key for true cross-store enforcement -- the API key's visibility is the true boundary.",
+    description: `List all subscription items, optionally filtered by subscription or price. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. ${crossStoreFilterNote(LIST_SUBSCRIPTION_ITEMS_FILTERS)}`,
     annotations: {
       title: "List subscription items",
       readOnlyHint: true,
@@ -46,7 +48,7 @@ export const subscriptionItemTools = [
       pageNumber: z.number().int().min(1).optional().describe("Page number (1-indexed)"),
       pageSize: z.number().int().min(1).max(100).optional().describe("Results per page (1-100)"),
     }),
-    requiredFilters: ["subscriptionId", "priceId"] as const,
+    requiredFilters: LIST_SUBSCRIPTION_ITEMS_FILTERS,
     handler: listHandler("/subscription-items", { subscriptionId: "subscription_id", priceId: "price_id" }),
   },
   {
