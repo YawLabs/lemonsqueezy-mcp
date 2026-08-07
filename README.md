@@ -316,6 +316,33 @@ npm run gen:containerfile    # regenerate Containerfile
 npm run check:containerfile  # CI runs this; non-zero exit means the two have drifted
 ```
 
+## Running on oam.js (optional)
+
+[oam.js](https://oamjs.org) runs this server unmodified. Verified against oam 0.8.2: full MCP handshake, all 64 tools, the `lemonsqueezy://audit-log` resource, working `fetch`, and guardrail rejections with error text identical to Node.
+
+```jsonc
+{
+  "mcpServers": {
+    "lemonsqueezy": {
+      "command": "oam",
+      "args": ["run", "/path/to/lemonsqueezy-mcp/dist/index.js"],
+      "env": { "LEMONSQUEEZY_API_KEY": "..." }
+    }
+  }
+}
+```
+
+Note the `--` separator if you pass arguments to the server rather than to oam: `oam run dist/index.js -- version`.
+
+**Node stays the default, deliberately.** An MCP client cold-starts this server once per session, so startup is the cost that actually gets paid — and on the machine this was measured on, Node won: **196ms median against 424ms for `oam run`** (8 runs each, `version` subcommand, which exercises full boot plus tool registration). Making oam the default would mean either a launcher that probes for it on every start — a cost paid by everyone, including the majority who do not have oam installed — or making oam a hard requirement, which would break `npx @yawlabs/lemonsqueezy-mcp` for every user without it, since oam is not distributed on npm. Neither is worth it to reach a runtime that is slower here. Measure on your own hardware before concluding anything; if oam wins on yours, the config above is all you need.
+
+Two places oam *does* win for this repo, both opt-in and neither touching the npm package:
+
+- **`npm run check:oam`** — type-checks via `oam check` (tsgo, TypeScript 7 native). Measured 2878ms against 4406ms for `tsc --noEmit`, same clean result. `npx tsc --noEmit` remains the portable default and is what the pre-commit checklist calls for.
+- **`npm run build:binary:oam`** — builds the standalone binary via `oam compile` instead of the Node SEA path. Measured 57.14 MB. Writes to the same `bin/<platform>-<arch>/` path as `npm run build:binary`, so the release staging script consumes either unchanged — run one or the other, not both. If you redistribute that binary it embeds oam's runtime, so ship oam's `LICENSE`, `NOTICE` and `THIRD_PARTY_LICENSES.md` with it.
+
+The source stays runtime-agnostic on purpose: no `oam:` imports anywhere, and tests stay on `node:test`. That is what keeps the Node fallback real rather than nominal — an `oam:test` or `oam:`-prefixed import would make "falls back to Node" false the moment it landed. Any `oam` invocation writes a bytecode cache to `oam/` in the working directory; that path is gitignored.
+
 ## Releasing
 
 Two paths from a clean checkout of `main`. Both produce the same artifact (npm publish with provenance + GitHub release).

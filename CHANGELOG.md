@@ -31,6 +31,14 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 - **Cross-store notes are generated from each module's `requiredFilters` array**, so the disclosure and the runtime gate cannot drift apart.
 - **`src/index.ts` is free of top-level await.** The version fallback used `await import("node:module")`, which the CJS single-binary build cannot emit; it survived only because both builds define `__VERSION__` and esbuild constant-folded the branch away. A static `createRequire` import removes the dependency on that folding -- verified by bundling to CJS with the define absent.
 
+### Added
+
+- **Opt-in [oam.js](https://oamjs.org) build tooling.** `npm run check:oam` type-checks via `oam check` (tsgo, TypeScript 7 native) -- 2878ms against 4406ms for `tsc --noEmit`, same clean result. `npm run build:binary:oam` builds the standalone binary via `oam compile` instead of the Node SEA path, writing to the same `bin/<platform>-<arch>/` location so the release staging script consumes either unchanged. Neither touches the published npm package.
+
+  **Node remains the default runtime.** oam runs the server unmodified (verified against 0.8.2: full handshake, all 64 tools, the audit-log resource, working `fetch`, guardrail errors identical to Node), but cold start measured 196ms for Node against 424ms for `oam run` -- and since an MCP client pays startup once per session, that is the cost that matters. oam is also not distributed on npm, so defaulting to it would break `npx` for anyone without it. `src/` stays runtime-agnostic (no `oam:` imports, tests on `node:test`) so the Node path remains a real fallback rather than a nominal one.
+
+- `oam/` added to `.gitignore` -- any `oam` invocation writes a bytecode cache there.
+
 ### Documentation
 
 - `0` documented as a valid value for the refund cap and both rate limits (blocks everything; unset/empty means no limit).

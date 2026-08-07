@@ -8,3 +8,6 @@ bin/
 build-tmp/
 dist-release/
 
+
+# oam.js bytecode cache -- written into CWD by any `oam` invocation
+oam/

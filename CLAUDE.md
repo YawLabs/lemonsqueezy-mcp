@@ -31,6 +31,12 @@ LemonSqueezy MCP server — manage your store, subscriptions, customers, and lic
 - Update tools reject an ID-only PATCH locally rather than paying a round-trip for an upstream 422, throwing `ToolInputError` so the wrapper logs it as `validation_error` (client mistake) rather than `exception` (something faulted) or `guardrail_block` (operator policy)
 - `redact.ts` guards cycles with an ancestor path *plus* a memo of completed subtrees — the ancestor set alone is O(paths), which is exponential on a shared-reference DAG
 
+## Runtime
+
+Node is the default and the only runtime the published package assumes. [oam.js](https://oamjs.org) runs the server unmodified (verified against 0.8.2 — full handshake, all 64 tools, resource, fetch, identical guardrail errors) but is **opt-in**: measured cold start here is 196ms for Node against 424ms for `oam run`, and oam is not on npm, so defaulting to it would break `npx` for anyone without it.
+
+**Keep `src/` runtime-agnostic.** No `oam:`-prefixed imports, tests stay on `node:test`. The moment an oam-only API lands in source, "falls back to Node" stops being true. oam is used at BUILD time only: `npm run check:oam` (tsgo typecheck, faster than `tsc`) and `npm run build:binary:oam` (`oam compile` instead of Node SEA, ~57 MB). Both write nothing into the npm package.
+
 ## Release process
 
 Releases run **locally** from a clean checkout of `main` via `./release.sh <version>`, which does steps 1-7 on the workstation -- lint, test, build, bump, commit, tag, push, npm publish (with `--provenance`), GitHub release, verify. Requires `npm login --auth-type=web` and `gh auth login` to be done once on the machine. Idempotent; safe to re-run after partial failures.

@@ -88,6 +88,25 @@ await esbuild.build({
 });
 console.log(`bundle: ${fmtSize(bundlePath)}`);
 
+// 1b. `--oam`: hand the SAME bundle to `oam compile` instead of the Node SEA
+// path below, and stop. Writes the same bin/<platform>-<arch>/<name> path the
+// SEA branch does, so stage-release-asset.mjs consumes either unchanged -- run
+// one or the other, not both.
+//
+// This is a BUILD-time use of oam only. Nothing about it reaches the published
+// npm package or the runtime code, which stays runtime-agnostic on purpose so
+// the Node path remains a real fallback rather than a nominal one.
+//
+// If you redistribute this binary it embeds oam's runtime: ship oam's LICENSE,
+// NOTICE and THIRD_PARTY_LICENSES.md alongside it.
+if (process.argv.includes('--oam')) {
+  rmSync(outExe, { force: true });
+  run('oam', ['compile', bundlePath, '--output', outExe]);
+  if (!isWin) chmodSync(outExe, 0o755);
+  console.log(`binary: ${fmtSize(outExe)} (oam compile)`);
+  process.exit(0);
+}
+
 // 2. Generate the SEA blob from sea-config.json.
 run(process.execPath, ['--experimental-sea-config', 'sea-config.json']);
 console.log(`blob:   ${fmtSize(blobPath)}`);
