@@ -22,18 +22,48 @@
  * For an MCP host config, point straight at oam and skip this file:
  *   { "command": "oam", "args": ["run", "<abs>/dist/index.js"] }
  *
+ * THE `--permission` SANDBOX (oam 0.9.0+, opt-in)
+ * `LEMONSQUEEZY_MCP_SANDBOX=1` runs the server under oam's permission model:
+ * network limited to api.lemonsqueezy.com, filesystem denied outright.
+ *
+ * LEMONSQUEEZY_SINK_URL is operator-configured, so its host is parsed out and
+ * added to the grant when set rather than assumed. Child-process stays denied
+ * UNLESS LEMONSQUEEZY_API_KEY_COMMAND is configured -- that feature shells out
+ * to fetch the key, so the grant is tied to the feature instead of handed over
+ * unconditionally.
+ *
+ * Opt-in, not default, because a wrong grant does not fail loudly. oam denies a
+ * non-granted environment variable by making it ABSENT from process.env rather
+ * than throwing, so an under-granted LEMONSQUEEZY_API_KEY reads as
+ * "unauthenticated" rather than "denied". The env list is derived from what the
+ * shipped bundle actually reads -- keep it in step with the bundle.
+ *
+ * MINIMUM OAM VERSION
+ * 0.9.0. Below it `child_process.execFile` ran its arguments through a SHELL,
+ * `exec` accepted `timeout` and ignored it, `spawnSync` truncated at
+ * `maxBuffer` while reporting success, and `stdio: 'inherit'`/`'ignore'` both
+ * behaved as `'pipe'`. This server shells out only when
+ * LEMONSQUEEZY_API_KEY_COMMAND is configured, so the execFile bug was reachable
+ * on exactly that path -- the command's arguments were re-split by a shell.
+ * An older oam is not an error: the launcher falls back to Node and says so on
+ * stderr. Pinning the floor here is what makes that fallback automatic.
+ *
  * SELECTION
  *   LEMONSQUEEZY_MCP_RUNTIME=oam    require oam; fail loudly if it is missing
  *   LEMONSQUEEZY_MCP_RUNTIME=node   never use oam
  *   LEMONSQUEEZY_MCP_RUNTIME=auto   prefer oam, silently fall back (default)
+ *   LEMONSQUEEZY_MCP_SANDBOX=1      run oam under --permission (oam 0.9.0+)
  *   OAM_BIN=/path/to/oam     explicit binary, checked before any discovery
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { constants, homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+/** Oldest oam whose `child_process` matches Node. See MINIMUM OAM VERSION above. */
+const OAM_MIN = [0, 9, 0];
 
 // Two forms, deliberately. `import()` on Windows REJECTS a bare `C:\...` path
 // with ERR_UNSUPPORTED_ESM_URL_SCHEME (it reads `c:` as a protocol), so the
@@ -83,6 +113,70 @@ function findOam() {
   return null;
 }
 
+/**
+ * `oam --version` -> [major, minor, patch], or null when it cannot be read.
+ * A pre-release suffix (0.9.0-rc.1) truncates to its base version.
+ */
+function oamVersion(cmd) {
+  try {
+    const out = execFileSync(cmd, ["--version"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const m = /(\d+)\.(\d+)\.(\d+)/.exec(out);
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  } catch {
+    // Not executable, wrong arch, or deleted since the stat. Caller degrades.
+    return null;
+  }
+}
+
+/** True when `v` is at least `min`, comparing major/minor/patch in order. */
+function atLeast(v, min) {
+  if (!v) return false;
+  for (let i = 0; i < min.length; i++) {
+    if (v[i] > min[i]) return true;
+    if (v[i] < min[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * The `--permission` grant list, or [] when the sandbox is not requested.
+ *
+ * These are oam's PROCESS-level flags: they belong before the `run` subcommand,
+ * not after it. `oam run --permission file.js` is rejected outright, which is a
+ * good failure but only because it is loud -- ordering here is load-bearing.
+ *
+ * Net grants prefix-match `host` for fetch and `host:port` for sockets.
+ * A denied environment variable is ABSENT from process.env rather than throwing,
+ * so the env list below is derived from what the bundle actually reads; trimming
+ * it produces silent misbehaviour, not a clear denial.
+ */
+function sandboxFlags() {
+  if (process.env.LEMONSQUEEZY_MCP_SANDBOX !== "1") return [];
+
+  const hosts = ["api.lemonsqueezy.com"];
+  // LEMONSQUEEZY_SINK_URL is operator-configured, so its host has to be learned, not assumed.
+  if (process.env.LEMONSQUEEZY_SINK_URL) {
+    try {
+      const { hostname } = new URL(process.env.LEMONSQUEEZY_SINK_URL);
+      if (hostname && !hosts.includes(hostname)) hosts.push(hostname);
+    } catch {
+      // Malformed URL: the feature is already broken on its own terms; adding
+      // nothing here keeps the grant honest rather than guessing a host.
+    }
+  }
+  const netFlag = `--allow-net=${hosts.join(",")}`;
+
+  const env = ["LEMONSQUEEZY_ALLOWED_STORE_IDS","LEMONSQUEEZY_API_KEY","LEMONSQUEEZY_API_KEY_COMMAND","LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT","LEMONSQUEEZY_DISABLE_CLASSES","LEMONSQUEEZY_LOG","LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS","LEMONSQUEEZY_RATE_LIMIT_PER_CLASS","LEMONSQUEEZY_SINK_ADMIN_TOKEN","LEMONSQUEEZY_SINK_URL","PATH"];
+
+  const flags = ["--permission", netFlag, `--allow-env=${env.join(",")}`];
+  // Tied to the feature that needs it, not granted unconditionally.
+  if (process.env.LEMONSQUEEZY_API_KEY_COMMAND) flags.push("--allow-child-process");
+  return flags;
+}
+
 /** Run the server in THIS process. The zero-overhead fallback. */
 async function runInProcess() {
   // A server may gate its bootstrap on being the process ENTRY POINT --
@@ -123,7 +217,7 @@ if (mode === "node") {
   } else {
     // `--` separates oam's own flags from the script's argv, so `lemonsqueezy-mcp
     // --version` and any host-supplied flags survive the hop unchanged.
-    const child = spawn(oam, ["run", SERVER_ENTRY, "--", ...process.argv.slice(2)], {
+    const child = spawn(oam, [...sandboxFlags(), "run", SERVER_ENTRY, "--", ...process.argv.slice(2)], {
       // inherit keeps the SAME fds, so MCP's newline-delimited JSON framing on
       // stdin/stdout is untouched and the host's stdin-close still reaches the
       // server's shutdown path.

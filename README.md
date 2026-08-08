@@ -318,7 +318,15 @@ npm run check:containerfile  # CI runs this; non-zero exit means the two have dr
 
 ## Running on oam.js (optional)
 
-[oam.js](https://oamjs.org) runs this server unmodified. Verified against oam 0.8.2: full MCP handshake, all 64 tools, the `lemonsqueezy://audit-log` resource, working `fetch`, and guardrail rejections with error text identical to Node.
+[oam.js](https://oamjs.org) runs this server unmodified. Verified against oam 0.9.0: full MCP handshake, all 64 tools, the `lemonsqueezy://audit-log` resource, working `fetch`, and guardrail rejections with error text identical to Node.
+
+**oam 0.9.0 is the minimum.** Older releases ran `child_process.execFile` arguments through a shell, which was reachable here whenever `LEMONSQUEEZY_API_KEY_COMMAND` is configured -- that feature shells out to fetch the key, and its arguments were re-split by a shell. The launcher enforces the floor: given an older oam it falls back to Node and says so on stderr, and `LEMONSQUEEZY_MCP_RUNTIME=oam` turns that into a hard error.
+
+### Sandboxing (opt-in)
+
+Set `LEMONSQUEEZY_MCP_SANDBOX=1` to run under oam's `--permission` model: network restricted to `api.lemonsqueezy.com` (plus the host of `LEMONSQUEEZY_SINK_URL` when set), filesystem denied outright, and child-process denied unless `LEMONSQUEEZY_API_KEY_COMMAND` is configured.
+
+It is opt-in rather than default because a wrong grant does not fail loudly. oam denies a non-granted environment variable by making it **absent** from `process.env` rather than throwing, so an under-granted `LEMONSQUEEZY_API_KEY` reads as "unauthenticated" rather than "denied". The env allow-list in the launcher is derived from what the shipped bundle actually reads -- if you add a new `process.env` lookup, extend that list with it.
 
 ```jsonc
 {

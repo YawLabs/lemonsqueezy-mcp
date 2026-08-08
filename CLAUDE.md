@@ -33,7 +33,11 @@ LemonSqueezy MCP server — manage your store, subscriptions, customers, and lic
 
 ## Runtime
 
-Node is the default and the only runtime the published package assumes. [oam.js](https://oamjs.org) runs the server unmodified (verified against 0.8.2 — full handshake, all 64 tools, resource, fetch, identical guardrail errors) but is **opt-in**: measured cold start here is 196ms for Node against 424ms for `oam run`, and oam is not on npm, so defaulting to it would break `npx` for anyone without it.
+Node is the default and the only runtime the published package assumes. [oam.js](https://oamjs.org) runs the server unmodified (re-verified against 0.9.0 — full handshake, all 64 tools, resource, fetch, identical guardrail errors) but is **opt-in**, because oam is not on npm and defaulting to it would break `npx` for anyone without it.
+
+**Minimum oam is 0.9.0**, enforced in `bin/lemonsqueezy-mcp.mjs`. Older releases ran `execFile` arguments through a shell, which is reachable here via `LEMONSQUEEZY_API_KEY_COMMAND`. An older oam falls back to Node with a note on stderr; `LEMONSQUEEZY_MCP_RUNTIME=oam` makes it a hard error. `LEMONSQUEEZY_MCP_SANDBOX=1` opts into `--permission` (net limited to the API host, fs denied, child denied unless the key-command feature is configured).
+
+The cold-start figures previously quoted here (196ms Node vs 424ms `oam run`) are **withdrawn, not restated**: they were taken with the methodology that npmjs-mcp later documented as wrong — timing a binary out of a cargo `target/` directory while it was being rebuilt. Interleaved runs against an *installed* oam put it ahead of Node on the sibling servers. Nothing has been re-measured for this repo, so treat runtime choice here as untimed rather than as a decided cost.
 
 **Keep `src/` runtime-agnostic.** No `oam:`-prefixed imports, tests stay on `node:test`. The moment an oam-only API lands in source, "falls back to Node" stops being true. oam is used at BUILD time only: `npm run check:oam` (tsgo typecheck, faster than `tsc`) and `npm run build:binary:oam` (`oam compile` instead of Node SEA, ~57 MB). Both write nothing into the npm package.
 
