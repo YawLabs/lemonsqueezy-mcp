@@ -12,3 +12,7 @@ dist-release/
 
 # oam.js bytecode cache -- written into CWD by any `oam` invocation
 oam/
+
+# npm auth token -- never commit (a project-local .npmrc can be
+# created by tooling and would carry a live automation token)
+.npmrc
