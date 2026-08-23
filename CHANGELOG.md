@@ -2,17 +2,17 @@
 
 ## [Unreleased]
 
-### Changed
-- **The minimum oam version is now actually enforced.** `oamVersion()` and `atLeast()` were defined but never called, so `OAM_MIN` was dead code and any oam on the box was spawned regardless of version — including the pre-0.9.0 releases the floor exists to exclude, where `child_process.execFile` ran its arguments through a shell, `exec` accepted `timeout` and ignored it, and `stdio: 'inherit'` behaved as `'pipe'`. This launcher shells out on its main paths, so those were reachable bugs. An oam below the floor is now refused under `LEMONSQUEEZY_MCP_RUNTIME=oam` and bypassed for Node under `auto`, in both cases saying which version it found.
+## [0.13.2] — 2026-08-23
 
 ### Fixed
-- **The launcher no longer dies with a raw stack trace when `spawn` fails.** Node throws synchronously rather than emitting `error` for some unexecutable targets — notably a `.cmd`/`.bat` on Windows — and the `error` listener is registered *after* the `spawn` call, so it could never observe that throw. Both failure modes now route through one handler.
-- **Windows `PATH` discovery accepts `oam.exe` only**, instead of walking every `PATHEXT` entry and returning an `oam.cmd` Node cannot execute. A skipped shim is still **named** in the diagnostic, so an npm-style install no longer reports as "no oam binary was found".
-- **A failing in-process fallback no longer escapes as an unhandled rejection.** `void runInProcess()` discarded the promise, replacing the launcher's own diagnostic with a raw stack trace.
-- **Diagnostics that precede `process.exit` are written synchronously.** stderr is async for TTYs and pipes on Windows, so the exit could truncate them. They route through one helper that also handles short writes and macOS `EAGAIN` on a non-blocking piped stderr.
-- Removed a literal backspace byte (`U+0008`) from the runtime-discovery comment, which made git treat the file as binary so its diff could not be reviewed.
-- **Windows: the launcher no longer hard-kills the server on the first Ctrl-C.** There are no POSIX signals on Windows — `child.kill(sig)` ignores the name and calls `TerminateProcess`, an immediate hard kill (verified: a child with a `SIGTERM` handler never runs it and dies with `code=null`). The launcher forwarded anyway, on the stated assumption that this was a "no-op on Windows", so it aborted the graceful shutdown the console's own Ctrl-C had just started and skipped the server's `process.on("exit")` cleanup. The console already delivers the event to the whole process group, so on Windows the launcher now forwards nothing.
-- **A wedged server no longer leaves the launcher hanging.** Forwarding was gated on `child.killed`, which records only that `kill()` was *called* — never that the child is gone — so every signal after the first was swallowed and there was no escape hatch. Escalation is now armed by a timer on the first signal: one press is enough, and a child still alive after a 2s grace window is killed. Using a timer rather than counting signals also stops the ordinary supervisor sequence (`SIGINT` then `SIGTERM` milliseconds apart) from being misread as impatience.
+
+- **The sandbox now grants `LEMONSQUEEZY_TEST_API_KEY`.** `src/secret.ts` reads it, but the `--allow-env` list omitted it, so under `LEMONSQUEEZY_MCP_SANDBOX=1` the variable was **absent** from `process.env` rather than denied -- oam withholds a non-granted variable instead of throwing. The test-mode branch simply took its false path: with both keys set the server silently used the **production** key, and with only the test key set `loadApiKey()` threw `LEMONSQUEEZY_API_KEY or LEMONSQUEEZY_API_KEY_COMMAND environment variable is required` while the key was in fact configured. That silent-misconfiguration shape is the exact hazard the launcher header cites as the reason the sandbox is opt-in rather than default.
+
+  Scope was judged against the built bundle, not `src/`: `LEMONSQUEEZY_TEST_API_KEY` appears twice in `dist/index.js`, so it ships. `LEMONSQUEEZY_TEST_STORE_ID` appears zero times -- it is read only by `integration.test.ts` -- so it stays ungranted rather than widening the sandbox for a variable the server never reads.
+
+### Added
+
+- **`src/sandbox-env.test.ts` fails the build if the allow-list drifts from what the bundle reads.** The gap above existed because nothing compared the two. The test parses the launcher's `--allow-env` array and every `process.env.LEMONSQUEEZY_*` in `dist/index.js`, and asserts the first covers the second; both sides also assert non-empty, so a regex that stops matching after a refactor fails loudly instead of passing vacuously. Asserting against the built artifact rather than sources is deliberate -- that is what runs under the sandbox, and it naturally excludes test-only reads. The inverse direction (granted but never read) is reported as a note rather than asserted, since a grant may legitimately land ahead of the code that uses it.
 
 ## [0.13.1] — 2026-08-23
 
