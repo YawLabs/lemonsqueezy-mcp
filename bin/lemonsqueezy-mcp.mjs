@@ -172,7 +172,20 @@ function sandboxFlags() {
   }
   const netFlag = `--allow-net=${hosts.join(",")}`;
 
-  const env = ["LEMONSQUEEZY_ALLOWED_STORE_IDS","LEMONSQUEEZY_API_KEY","LEMONSQUEEZY_API_KEY_COMMAND","LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT","LEMONSQUEEZY_DISABLE_CLASSES","LEMONSQUEEZY_LOG","LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS","LEMONSQUEEZY_RATE_LIMIT_PER_CLASS","LEMONSQUEEZY_SINK_ADMIN_TOKEN","LEMONSQUEEZY_SINK_URL","PATH"];
+  const env = [
+    "LEMONSQUEEZY_ALLOWED_STORE_IDS",
+    "LEMONSQUEEZY_API_KEY",
+    "LEMONSQUEEZY_API_KEY_COMMAND",
+    "LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT",
+    "LEMONSQUEEZY_DISABLE_CLASSES",
+    "LEMONSQUEEZY_LOG",
+    "LEMONSQUEEZY_MAX_REFUND_AMOUNT_CENTS",
+    "LEMONSQUEEZY_RATE_LIMIT_PER_CLASS",
+    "LEMONSQUEEZY_SINK_ADMIN_TOKEN",
+    "LEMONSQUEEZY_SINK_URL",
+    "LEMONSQUEEZY_TEST_API_KEY",
+    "PATH",
+  ];
 
   const flags = ["--permission", netFlag, `--allow-env=${env.join(",")}`];
   // Tied to the feature that needs it, not granted unconditionally.
@@ -270,7 +283,8 @@ if (mode === "node") {
       const { writeSync } = await import("node:fs");
       writeSync(
         2,
-        "lemonsqueezy-mcp: LEMONSQUEEZY_MCP_RUNTIME=oam but no runnable oam binary was found.\n" + shimNote +
+        "lemonsqueezy-mcp: LEMONSQUEEZY_MCP_RUNTIME=oam but no runnable oam binary was found.\n" +
+          shimNote +
           "Install from https://oamjs.org, set OAM_BIN=/path/to/oam, or use LEMONSQUEEZY_MCP_RUNTIME=node.\n",
       );
       process.exit(1);
@@ -348,7 +362,6 @@ if (mode === "node") {
     }
 
     if (child) {
-
       // If oam cannot be executed at all (deleted between the stat and the spawn,
       // wrong arch, permission), fall back rather than failing the whole server.
       // `spawned` prevents falling back AFTER the child started, which would
