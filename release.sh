@@ -114,9 +114,29 @@ assert_changelog_promoted() {
 }
 
 # SKIP_LINT=1 escape hatch -- wraps `npm`/`pnpm` so lint-related runs are
-# no-ops. Workaround for the MINGW64-ARM64 npm-run-script wrapper that
-# segfaults on exit-cleanup (platform-windows.md). Apply only when the
-# lint runner is broken on the host; CI catches lint regressions anyway.
+# no-ops.
+#
+# THIS SHOULD NOW BE UNNECESSARY, and reaching for it is a signal something
+# regressed. `npm run lint` routes through scripts/lint.mjs, which picks a
+# biome binary that works on the host -- including Windows ARM64, where the
+# arm64 build of SOME biome versions crashes on a real check (2.5.4, the
+# version this repo installs, measured at exit 139 there; 2.4.16 and 2.5.13
+# run fine), and the wrapper runs the x64 build of that same version under
+# emulation instead. Verified: `npm run lint` exits 0 on that host.
+#
+# The earlier text here blamed "the MINGW64-ARM64 npm-run-script wrapper" and
+# justified skipping with "CI catches lint regressions anyway". Both were wrong.
+# `npm run` is fine on that host (`npm run lint` through scripts/lint.mjs is a
+# plain node script through the same wrapper, and exits 0); the crash comes
+# from the arm64 `biome.exe` of the affected version itself, reproducible by
+# invoking that binary directly with no npm in the picture. And this repo has
+# no CI: there is no .github/workflows directory, so nothing downstream
+# re-checks formatting -- skipping the lint step means the release is
+# published unlinted, full stop.
+#
+# So: only set SKIP_LINT=1 if scripts/lint.mjs cannot produce a result at all,
+# and treat that as a bug to fix rather than a step to routinely skip. Without
+# it, step 1 fails the release on ANY non-zero lint exit, a crash included.
 if [ "${SKIP_LINT:-}" = "1" ]; then
   npm() {
     if [ "$1" = "run" ] && [[ "$2" == lint* ]]; then
