@@ -343,6 +343,30 @@ describe("Allowlist gate alignment", () => {
     );
   });
 
+  // Both invariants above SKIP a tool whose handler has no filterMap
+  // (`if (!filterMap) continue`), so a handler wrapper that drops the
+  // property does not fail them -- it silently removes that tool from the
+  // gate. Lock the property itself: every ls_list_* tool is built by
+  // `listHandler`, which attaches filterMap (`{}` where the endpoint takes no
+  // filters), and the price / subscription-item list tools re-wrap that
+  // handler to annotate effective prices.
+  it("every ls_list_* tool's handler still exposes filterMap after any wrapping", () => {
+    const listTools = allTools.filter((t) => t.name.startsWith("ls_list_"));
+    assert.ok(
+      listTools.length > 0,
+      "found no ls_list_* tools -- the naming convention this invariant keys off has changed, so it is now a no-op",
+    );
+    for (const tool of listTools) {
+      const handler = tool.handler as unknown as { filterMap?: Record<string, string> };
+      assert.ok(
+        handler.filterMap !== null && typeof handler.filterMap === "object",
+        `Tool ${tool.name} has no handler.filterMap, so the allowlist-alignment invariants above skip it ` +
+          "entirely rather than fail. A handler wrapper must carry listHandler's metadata through " +
+          "(Object.assign(wrapped, handler)).",
+      );
+    }
+  });
+
   it("every known-ungated list tool discloses the gap in its own description", () => {
     // README documents this, but an agent picking tools only ever reads the
     // description in tools/list. ls_list_stores shipped without the note.
