@@ -8,7 +8,13 @@ export const variantTools = [
   {
     name: "ls_get_variant",
     authorityClass: "read" as const,
-    description: "Get a specific product variant by ID, including price, billing interval, and trial settings.",
+    description:
+      "Get a specific product variant by ID, including billing interval and trial settings. " +
+      "WARNING: do NOT read `price` as the amount charged. For usage-based, per-seat or " +
+      "otherwise tiered variants it is vestigial and commonly reads the same value across " +
+      "products that bill very differently. The authoritative per-unit price lives on the " +
+      "variant's PRICE resource -- call ls_list_prices with this variantId, take the newest " +
+      "record by `created_at`, and read its `effective_unit_price`.",
     annotations: {
       title: "Get variant",
       readOnlyHint: true,
@@ -29,7 +35,7 @@ export const variantTools = [
   {
     name: "ls_list_variants",
     authorityClass: "read" as const,
-    description: `List all variants, optionally filtered by product. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. ${crossStoreFilterNote(LIST_VARIANTS_FILTERS)}`,
+    description: `List all variants, optionally filtered by product. Results are paginated — check meta.page in the response for currentPage, lastPage, and total. WARNING: do NOT read \`price\` as the amount charged -- for usage-based, per-seat or otherwise tiered variants it is vestigial and commonly reads the same value across products that bill very differently. The authoritative per-unit price lives on each variant's PRICE resource: call ls_list_prices with the variantId, take the newest record by \`created_at\`, and read its \`effective_unit_price\`. ${crossStoreFilterNote(LIST_VARIANTS_FILTERS)}`,
     annotations: {
       title: "List variants",
       readOnlyHint: true,
