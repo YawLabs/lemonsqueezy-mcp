@@ -54,10 +54,7 @@ const exe = isWindows ? ".exe" : "";
  * runs node's test runner with `--test-timeout=300000`.
  *
  * Deliberately generous -- these convert an infinite hang into a reported
- * failure, they are not performance budgets. For scale, biome itself reports
- * about 1.2s to check this repo's 45 src/ files through the emulated x64
- * binary; `npm run lint` wall time is longer because npm, node and the
- * emulation layer all start first.
+ * failure, they are not performance budgets.
  */
 const PROBE_TIMEOUT_MS = 30_000;
 const INSTALL_TIMEOUT_MS = 5 * 60_000;
