@@ -2,7 +2,7 @@
   "name": "@yawlabs/lemonsqueezy-mcp",
   "version": "0.13.2",
   "mcpName": "io.github.YawLabs/lemonsqueezy-mcp",
-  "description": "LemonSqueezy MCP server for managing your store from AI assistants",
+  "description": "Lemon Squeezy MCP server: stores, orders, subscriptions, license keys, refunds, and webhooks.",
   "license": "MIT",
   "author": "YawLabs <contact@yaw.sh>",
   "repository": {
@@ -13,11 +13,21 @@
     "lemonsqueezy",
     "lemon-squeezy",
     "mcp",
+    "mcp-server",
     "model-context-protocol",
     "ai",
+    "agent",
+    "claude",
+    "claude-code",
+    "claude-desktop",
     "payments",
     "subscriptions",
-    "licensing"
+    "refunds",
+    "license-keys",
+    "licensing",
+    "checkout",
+    "webhooks",
+    "billing"
   ],
   "type": "module",
   "main": "dist/index.js",
@@ -57,5 +67,6 @@
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "homepage": "https://yaw.sh/mcp-servers/lemonsqueezy-mcp/"
 }
