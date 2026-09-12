@@ -128,6 +128,8 @@ Add to `claude_desktop_config.json`:
 - `ls_get_price` — Get a price by ID
 - `ls_list_prices` — List prices (filter by variant)
 
+Both annotate every record with `effective_unit_price`, the cents actually charged per unit. Read that rather than `unit_price`, which is vestigial on tiered (`volume` / `graduated`) pricing, or a variant's `price`. The subscription-item reads apply the same annotation to prices embedded via `include=price`.
+
 ### Files
 - `ls_get_file` — Get a file by ID
 - `ls_list_files` — List files (filter by variant)

@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Price records now carry the price actually charged.** Lemon Squeezy returns a `unit_price` on every price record, and on a `volume` or `graduated` scheme it is vestigial -- the charged rate lives in `tiers[]`. In one store, three per-seat products all reported `unit_price: 2000` while billing $25, $100 and $200 per seat, and an agent reading the obvious field quoted all three as $20. `ls_get_price` and `ls_list_prices` now annotate every record with:
+  - `effective_unit_price` -- cents charged per unit: the first tier's rate on tiered schemes, `unit_price / package_size` on `package`, and `unit_price` on `standard`. `unit_price_decimal` wins wherever it is set, so sub-cent and metered rates are not rounded. It is `null` when the record carries no usable price; a tiered record with no tiers is never backfilled from `unit_price`, since that is how the wrong number got quoted in the first place.
+  - `effective_unit_price_note` -- where the number came from, including when the rate varies with quantity and any non-zero tier `fixed_fee` or enabled `setup_fee`, which are named but kept out of the per-unit figure.
+  - `unit_price_is_not_charged: true` on tiered records, and `unit_price_is_per_package: true` on `package` pricing whose block is larger than one unit.
+
+  Additive only: every raw field and the payload shape are untouched, and error bodies pass through unannotated.
+- **The same annotation reaches price records embedded via `include=price`** on `ls_get_subscription_item` and `ls_list_subscription_items` -- the seat-based-billing path, where a raw `unit_price` is the most likely to be read as a per-seat rate. The subscription item itself is not annotated.
+
+### Changed
+
+- **Variant tools warn that `price` is not the charged amount.** A variant payload has nothing to derive a charged price from, so `ls_get_variant` and `ls_list_variants` now say so in their descriptions and point at `ls_list_prices`. `ls_list_prices` also documents that a variant can carry several price records, the current one being the newest by `created_at`.
+
+## [0.13.3] — 2026-09-11
+
+No runtime changes: nothing under `src/` changed and no dependency moved. This release is tooling, packaging metadata and docs. This entry was backfilled -- `[Unreleased]` was empty when 0.13.3 was cut, so its GitHub release notes fell back to bare commit subjects.
+
+### Fixed
+
+- **`npm run lint` checks the biome version the repo actually installs.** On Windows ARM64, `scripts/lint.mjs` runs the x64 build of biome under emulation, because some arm64 builds -- including 2.5.4, the one this repo installs -- exit 139 on a real check while still answering `--version` cleanly. It chose the version to provision from `biome.json`'s `$schema`, which pins what the config is validated against rather than the installed binary, and the two had drifted: `$schema` said 2.4.12 while the lockfile installs 2.5.4, so "lint clean" was a claim about a version this repo does not use. The version now comes from `package-lock.json`, falls back to the installed package, and fails with an actionable message when neither is present.
+
+### Changed
+
+- **`release.sh` promotes `[Unreleased]` to the released version and commits the result.** The script read CHANGELOG.md for release notes but never renamed the heading, so documented work accumulated under `[Unreleased]` while the shipped version went out without an entry of its own. It now renames the first `## [Unreleased]` heading to `## [X.Y.Z] <dash> <date>`, reusing whichever dash the file already uses, stages CHANGELOG.md in the version-bump commit, and fails the release when the version has no entry but `[Unreleased]` has content.
+- **npm metadata.** `homepage` now points at https://yaw.sh/mcp-servers/lemonsqueezy-mcp/, and the description and keywords name what the server manages: stores, orders, subscriptions, license keys, refunds and webhooks.
+- **README:** added a follow badge for @TokenLimitNews on X.
+
 ## [0.13.2] — 2026-08-23
 
 ### Fixed
@@ -558,7 +586,12 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.9...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.3...HEAD
+[0.13.3]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.2...v0.13.3
+[0.13.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.1...v0.13.2
+[0.13.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.13...v0.11.0
 [0.10.13]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.10.12...v0.10.13
