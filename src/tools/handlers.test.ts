@@ -273,6 +273,24 @@ describe("Variant handlers", () => {
 
 // ─── Prices ───
 
+// A realistic tiered price record. `unit_price: 2000` is the vestigial field on
+// a `volume` scheme -- `tiers[0].unit_price: 10000` is what the customer is
+// actually charged. Shared with the subscription-item tests further down, which
+// see the SAME record arrive embedded in `included[]` via `?include=price`.
+function tieredPriceAttributes() {
+  return {
+    scheme: "volume",
+    unit_price: 2000,
+    unit_price_decimal: null,
+    tiers: [{ last_unit: "inf", unit_price: 10000, unit_price_decimal: null, fixed_fee: 0 }],
+    package_size: 1,
+  };
+}
+
+function tieredPriceResource() {
+  return { type: "prices", id: "3", attributes: tieredPriceAttributes() };
+}
+
 describe("Price handlers", () => {
   it("ls_get_price calls GET /prices/:id", async () => {
     const tool = findTool(priceTools, "ls_get_price");
@@ -284,6 +302,62 @@ describe("Price handlers", () => {
     const tool = findTool(priceTools, "ls_list_prices");
     await tool.handler({ variantId: "7" });
     assert.ok(lastRequest!.url.includes("filter[variant_id]=7"));
+  });
+
+  // The two tests above only assert the URL, which every mutation of the
+  // response-side wrapper survives: unwrapping `withEffectivePrice` on either
+  // price tool, or aliasing the import to `withEmbeddedEffectivePrice` (which
+  // annotates ONLY `included[]`), leaves the request identical and the suite
+  // green while the agent gets back a bare, confidently-wrong `unit_price`.
+  // tsc cannot see it either -- the wrapper is deliberately type-transparent
+  // (`withEffectivePrice<H extends Handler>(h: H): H`). So assert the BODY.
+  it("ls_get_price annotates the primary price record with the charged price", async () => {
+    mockFetch(200, { data: tieredPriceResource() });
+    const tool = findTool(priceTools, "ls_get_price");
+    const result = (await tool.handler({ priceId: "3" })) as AnyBody;
+    assert.equal(result.ok, true);
+
+    // `{ data: {...} }` -- the get shape.
+    const record = result.data.data;
+    assert.equal(record.type, "prices");
+    assert.equal(record.id, "3");
+    assert.equal(record.attributes.effective_unit_price, 10000);
+    assert.equal(record.attributes.unit_price_is_not_charged, true);
+    assert.ok(
+      String(record.attributes.effective_unit_price_note).includes("tiers[0].unit_price (10000 cents)"),
+      `note must name the source field, got ${String(record.attributes.effective_unit_price_note)}`,
+    );
+
+    // The annotation only ever ADDS keys -- the raw upstream fields survive
+    // untouched so anything reading the documented shape still works.
+    assert.equal(record.attributes.unit_price, 2000);
+    assert.equal(record.attributes.scheme, "volume");
+    assert.deepEqual(record.attributes.tiers, [
+      { last_unit: "inf", unit_price: 10000, unit_price_decimal: null, fixed_fee: 0 },
+    ]);
+  });
+
+  it("ls_list_prices annotates every record in the list shape", async () => {
+    // `{ data: [...] }` is a separate branch in `annotatePricePayload`, and
+    // `ls_list_prices` is wrapped separately from `ls_get_price` -- one test
+    // cannot cover both.
+    mockFetch(200, { data: [tieredPriceResource()], meta: { page: { currentPage: 1, total: 1 } } });
+    const tool = findTool(priceTools, "ls_list_prices");
+    const result = (await tool.handler({ variantId: "7" })) as AnyBody;
+    assert.equal(result.ok, true);
+    assert.ok(lastRequest!.url.includes("filter[variant_id]=7"));
+
+    assert.ok(Array.isArray(result.data.data), "list shape must stay an array");
+    assert.equal(result.data.data.length, 1);
+    const attrs = result.data.data[0].attributes;
+    assert.equal(attrs.effective_unit_price, 10000);
+    assert.equal(attrs.unit_price_is_not_charged, true);
+    assert.ok(String(attrs.effective_unit_price_note).includes("tiers[0].unit_price (10000 cents)"));
+    assert.equal(attrs.unit_price, 2000);
+
+    // Siblings of `data` ride through the spread unchanged -- pagination is
+    // how the agent knows there are more price records for this variant.
+    assert.deepEqual(result.data.meta, { page: { currentPage: 1, total: 1 } });
   });
 });
 
@@ -543,6 +617,81 @@ describe("Subscription item handlers", () => {
     const tool = findTool(subscriptionItemTools, "ls_list_subscription_items");
     await tool.handler({ subscriptionId: "300" });
     assert.ok(lastRequest!.url.includes("filter[subscription_id]=300"));
+  });
+
+  // `?include=price` here is the seat-based-billing path: the one route outside
+  // the price tools that hands back price records. The URL assertions above
+  // survive unwrapping `withEmbeddedEffectivePrice` on either tool, AND survive
+  // swapping its annotator for `annotatePricePayload` -- which would invent an
+  // `effective_unit_price` on the subscription ITEM (measured: `null`, note
+  // `scheme "unknown"`), i.e. a fabricated field on a resource that has no
+  // price of its own. Both halves are asserted below.
+  const subscriptionItemResource = () => ({
+    type: "subscription-items",
+    id: "500",
+    attributes: { subscription_id: 300, price_id: 3, quantity: 4, is_usage_based: false },
+  });
+  // `included[]` is a mixed bag on this endpoint -- a subscription AND a price
+  // in one array -- so the annotator has to pick the price out by `type`.
+  const mixedIncluded = () => [
+    { type: "subscriptions", id: "300", attributes: { store_id: 1, status: "active", unit_price: 2000 } },
+    tieredPriceResource(),
+  ];
+
+  it("ls_get_subscription_item annotates the embedded price, not the item", async () => {
+    mockFetch(200, { data: subscriptionItemResource(), included: mixedIncluded() });
+    const tool = findTool(subscriptionItemTools, "ls_get_subscription_item");
+    const result = (await tool.handler({ subscriptionItemId: "500", include: "subscription,price" })) as AnyBody;
+    assert.equal(result.ok, true);
+    assert.ok(lastRequest!.url.includes("include=subscription%2Cprice"));
+
+    const price = result.data.included.find((r: AnyBody) => r.type === "prices");
+    assert.ok(price, "the prices entry must survive in included[]");
+    assert.equal(price.attributes.effective_unit_price, 10000);
+    assert.equal(price.attributes.unit_price_is_not_charged, true);
+    assert.ok(String(price.attributes.effective_unit_price_note).includes("tiers[0].unit_price (10000 cents)"));
+    assert.equal(price.attributes.unit_price, 2000);
+
+    // The primary data is a subscription item, NOT a price. Annotating it would
+    // be inventing a field -- this is the assertion that kills an annotator
+    // swap in `withEmbeddedEffectivePrice`.
+    const primary = result.data.data;
+    assert.equal(primary.type, "subscription-items");
+    assert.equal(primary.attributes.quantity, 4);
+    assert.ok(
+      !("effective_unit_price" in primary.attributes),
+      "the subscription item itself must not be annotated with a price it does not have",
+    );
+    assert.ok(!("effective_unit_price_note" in primary.attributes));
+    assert.ok(!("unit_price_is_not_charged" in primary.attributes));
+
+    // Non-price includes are passed through as-is, `unit_price` and all.
+    const sub = result.data.included.find((r: AnyBody) => r.type === "subscriptions");
+    assert.ok(!("effective_unit_price" in sub.attributes), "a non-price include must not be annotated");
+    assert.equal(sub.attributes.unit_price, 2000);
+  });
+
+  it("ls_list_subscription_items annotates embedded prices, not the items", async () => {
+    mockFetch(200, { data: [subscriptionItemResource()], included: mixedIncluded(), meta: { page: { total: 1 } } });
+    const tool = findTool(subscriptionItemTools, "ls_list_subscription_items");
+    const result = (await tool.handler({ subscriptionId: "300", include: "price" })) as AnyBody;
+    assert.equal(result.ok, true);
+    assert.ok(lastRequest!.url.includes("filter[subscription_id]=300"));
+
+    const price = result.data.included.find((r: AnyBody) => r.type === "prices");
+    assert.ok(price, "the prices entry must survive in included[]");
+    assert.equal(price.attributes.effective_unit_price, 10000);
+    assert.equal(price.attributes.unit_price_is_not_charged, true);
+    assert.equal(price.attributes.unit_price, 2000);
+
+    assert.ok(Array.isArray(result.data.data), "list shape must stay an array");
+    const primary = result.data.data[0];
+    assert.equal(primary.type, "subscription-items");
+    assert.ok(
+      !("effective_unit_price" in primary.attributes),
+      "the subscription item itself must not be annotated with a price it does not have",
+    );
+    assert.deepEqual(result.data.meta, { page: { total: 1 } });
   });
 
   it("ls_update_subscription_item sends PATCH with quantity", async () => {

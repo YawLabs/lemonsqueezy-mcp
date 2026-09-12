@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { computeEffectivePrice } from "../effective-price.js";
 import { AUTHORITY_CLASSES } from "../guardrails.js";
 import { affiliateTools } from "./affiliates.js";
 import { checkoutTools } from "./checkouts.js";
@@ -399,6 +400,114 @@ describe("Allowlist gate alignment", () => {
           `Tool ${tool.name} requires filter "${filter}" but does not name it in the description.`,
         );
       }
+    }
+  });
+});
+
+describe("Price-contract disclosure", () => {
+  // ls_get_price / ls_list_prices annotate the price records they return, and
+  // ls_get_subscription_item / ls_list_subscription_items annotate the ones
+  // embedded by `include=price` -- all four wrap their handler in
+  // withEffectivePrice / withEmbeddedEffectivePrice. The description is where
+  // that annotation is PROMISED, and the promise and the wrapper can come
+  // apart in either direction: unwrapping the four handlers leaves four
+  // descriptions advertising a field that no longer appears in the payload.
+  // This holds the half a description test can hold -- green here means the
+  // promise is still made, not that it is still kept.
+  const EFFECTIVE_PRICE_FIELD = "effective_unit_price";
+  const ANNOTATED_PRICE_TOOLS = [
+    "ls_get_price",
+    "ls_list_prices",
+    "ls_get_subscription_item",
+    "ls_list_subscription_items",
+  ];
+
+  it("every tool that annotates price records promises effective_unit_price in its description", () => {
+    for (const name of ANNOTATED_PRICE_TOOLS) {
+      const tool = allTools.find((t) => t.name === name);
+      assert.ok(tool, `${name} listed in ANNOTATED_PRICE_TOOLS but not found in allTools`);
+      assert.ok(
+        tool.description.includes(`\`${EFFECTIVE_PRICE_FIELD}\``),
+        `Tool ${name} annotates its price records but never names ${EFFECTIVE_PRICE_FIELD} in its description. ` +
+          "An agent choosing a tool reads only what tools/list shows it, so an unannounced annotation is one nobody " +
+          "looks for -- it goes on quoting the vestigial unit_price instead.",
+      );
+    }
+  });
+
+  it("every tool that annotates price records still warns off unit_price", () => {
+    // Naming the good field is only half the message. The incident was an
+    // agent confidently reading the field that IS there, not one failing to
+    // find a field that was missing, so the warning has to survive too.
+    for (const name of ANNOTATED_PRICE_TOOLS) {
+      const tool = allTools.find((t) => t.name === name);
+      assert.ok(tool, `${name} listed in ANNOTATED_PRICE_TOOLS but not found in allTools`);
+      assert.ok(
+        tool.description.includes("`unit_price`") && tool.description.includes("vestigial"),
+        `Tool ${name} promises ${EFFECTIVE_PRICE_FIELD} but no longer calls unit_price vestigial. The raw field is ` +
+          "still in the payload next to the annotation, identical across products that bill very differently, and " +
+          "nothing but this sentence tells the caller which of the two to trust.",
+      );
+    }
+  });
+
+  // The rename half of the same coupling, and the reason these key names are
+  // not spelled out here: renaming a flag in effective-price.ts while the
+  // description kept advertising the old spelling would leave a hardcoded
+  // assertion in this file green. So the names come from the annotator itself
+  // -- one fixture per branch of computeEffectivePrice -- and the description
+  // has to name whatever the code actually emits today.
+  it("both price tools name every annotation key computeEffectivePrice can emit", () => {
+    const standard = computeEffectivePrice({ scheme: "standard", unit_price: 1000 });
+    const tiered = computeEffectivePrice({ scheme: "volume", unit_price: 2000, tiers: [{ unit_price: 10000 }] });
+    const packaged = computeEffectivePrice({ scheme: "package", unit_price: 5000, package_size: 5 });
+    const emitted = new Set([...Object.keys(standard), ...Object.keys(tiered), ...Object.keys(packaged)]);
+    assert.ok(
+      emitted.size >= 4,
+      `Expected both always-present keys and both conditional flags; got: ${[...emitted].join(", ")}. ` +
+        "A branch these fixtures no longer reach is a flag this invariant silently stops checking.",
+    );
+
+    for (const name of ["ls_get_price", "ls_list_prices"]) {
+      const tool = allTools.find((t) => t.name === name);
+      assert.ok(tool, `${name} not found in allTools`);
+      for (const key of emitted) {
+        assert.ok(
+          tool.description.includes(key),
+          `Tool ${name} never names "${key}", which computeEffectivePrice puts on the records it returns. Either the ` +
+            "key was renamed in effective-price.ts and the description still advertises the old spelling, or a new " +
+            "flag ships undocumented -- either way the payload carries a field the description cannot explain.",
+        );
+      }
+    }
+  });
+
+  // The variant tools are the other side of the same incident, and unlike the
+  // four above they have no payload mitigation at all: a variant record is
+  // never annotated, so its `price` reaches the caller exactly as the API
+  // returned it -- the field that read the same value for three products
+  // billing $25, $100 and $200 per seat. Here the description IS the whole
+  // mitigation, and deleting it from both tools is a fully green run today.
+  it("both variant tools keep the price warning and the redirect to ls_list_prices", () => {
+    for (const name of ["ls_get_variant", "ls_list_variants"]) {
+      const tool = allTools.find((t) => t.name === name);
+      assert.ok(tool, `${name} not found in allTools`);
+      assert.match(
+        tool.description,
+        /WARNING: do NOT read `price` as the amount charged/,
+        `Tool ${name} no longer warns that a variant's price is not the amount charged. Variant payloads are never ` +
+          "annotated, so nothing else in this tool's response contradicts a caller who reads that field.",
+      );
+      assert.ok(
+        tool.description.includes("ls_list_prices"),
+        `Tool ${name} warns off the variant price but no longer says where the real one lives. ls_list_prices with ` +
+          "this variantId is the redirect; a warning with nowhere to go leaves the caller on the wrong field anyway.",
+      );
+      assert.ok(
+        tool.description.includes(EFFECTIVE_PRICE_FIELD),
+        `Tool ${name} redirects to the price resource but never names ${EFFECTIVE_PRICE_FIELD}, the field to read ` +
+          "once there. Price records carry a unit_price too, so an unqualified redirect lands on the same misread.",
+      );
     }
   });
 });
