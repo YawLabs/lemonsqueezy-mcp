@@ -2,7 +2,7 @@
 
 MCP server for the [LemonSqueezy](https://lemonsqueezy.com) API. Manage your store, products, customers, subscriptions, discounts, license keys, and more from any MCP-compatible AI assistant.
 
-[![Add to Yaw MCP](https://yaw.sh/yaw-mcp-button.svg)](https://yaw.sh/mcp/install?name=LemonSqueezy&command=npx&args=-y%2C%40yawlabs%2Flemonsqueezy-mcp&description=LemonSqueezy%20store%20management%20-%20products%2C%20orders%2C%20subscriptions%2C%20license%20keys&source=https%3A%2F%2Fgithub.com%2FYawLabs%2Flemonsqueezy-mcp) [![Follow @TokenLimitNews on X](https://img.shields.io/badge/follow-%40TokenLimitNews-000000?logo=x&logoColor=white)](https://x.com/TokenLimitNews)
+[![Add to Yaw MCP](https://yaw.sh/yaw-mcp-button.svg)](https://yaw.sh/mcp/install?name=LemonSqueezy&command=npx&args=-y%2C%40yawlabs%2Flemonsqueezy-mcp&description=LemonSqueezy%20store%20management%20-%20products%2C%20orders%2C%20subscriptions%2C%20license%20keys&source=https%3A%2F%2Fgithub.com%2FYawLabs%2Flemonsqueezy-mcp)
 
 One click adds this to your local Yaw MCP config so it's available in every Yaw Terminal session. Or install manually below.
 
@@ -406,3 +406,5 @@ The local path does **not** publish to the Official MCP Registry — that step l
 ## License
 
 MIT
+
+[![Follow @TokenLimitNews on X](https://img.shields.io/badge/follow-%40TokenLimitNews-000000?logo=x&logoColor=white)](https://x.com/TokenLimitNews)
