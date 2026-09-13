@@ -12,7 +12,7 @@
  */
 
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -177,6 +177,28 @@ describe("launcher pickNewest()", () => {
 
 type LauncherRun = { code: number; stdout: string; stderr: string };
 
+/** The scrubbed launcher environment; see runLauncher. */
+function launcherEnv(extraEnv: Record<string, string>): Record<string, string> {
+  const overrides = { OAM_BIN: process.execPath, ...extraEnv };
+  const replaced = new Set(Object.keys(overrides).map((k) => k.toUpperCase()));
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.startsWith("LEMONSQUEEZY_") || replaced.has(k.toUpperCase())) continue;
+    if (v !== undefined) env[k] = v;
+  }
+  return Object.assign(env, overrides);
+}
+
+/** The `--import` preload: exit marker, optional oam pose, then `extraPreload`; see runLauncher. */
+function launcherPreload(hostOam: string | undefined, extraPreload: string): string[] {
+  const exitMarker = `import { writeSync } from "node:fs"; process.on("exit", () => { try { writeSync(2, "LAUNCHER_ARGV1=" + process.argv[1] + "\\n"); } catch {} });`;
+  const posing =
+    hostOam === undefined
+      ? ""
+      : `Object.defineProperty(process.versions, "oam", { value: ${JSON.stringify(hostOam)}, enumerable: true });`;
+  return ["--import", `data:text/javascript,${encodeURIComponent(`${exitMarker}${posing}${extraPreload}`)}`];
+}
+
 /**
  * Run the REAL bin under Node, optionally posing as oam by preloading a
  * `process.versions.oam` key, and return what it wrote.
@@ -208,27 +230,19 @@ type LauncherRun = { code: number; stdout: string; stderr: string };
  * differs only in case (Windows spells it `Path`). The rest is kept rather than
  * whitelisted, because a Windows child stripped of SystemRoot and friends is a
  * different failure than the one under test.
+ *
+ * `extraPreload` is appended to the preload module, for a case that has to
+ * change how the launcher's own process behaves (a spawn that fails).
  */
-async function runLauncher(hostOam: string | undefined, extraEnv: Record<string, string> = {}): Promise<LauncherRun> {
-  const overrides = { OAM_BIN: process.execPath, ...extraEnv };
-  const replaced = new Set(Object.keys(overrides).map((k) => k.toUpperCase()));
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (k.startsWith("LEMONSQUEEZY_") || replaced.has(k.toUpperCase())) continue;
-    if (v !== undefined) env[k] = v;
-  }
-  Object.assign(env, overrides);
-
-  const exitMarker = `import { writeSync } from "node:fs"; process.on("exit", () => { try { writeSync(2, "LAUNCHER_ARGV1=" + process.argv[1] + "\\n"); } catch {} });`;
-  const posing =
-    hostOam === undefined
-      ? ""
-      : `Object.defineProperty(process.versions, "oam", { value: ${JSON.stringify(hostOam)}, enumerable: true });`;
-  const preload = ["--import", `data:text/javascript,${encodeURIComponent(`${exitMarker}${posing}`)}`];
-
+async function runLauncher(
+  hostOam: string | undefined,
+  extraEnv: Record<string, string> = {},
+  extraPreload = "",
+): Promise<LauncherRun> {
   try {
-    const { stdout, stderr } = await execFileAsync(process.execPath, [...preload, LAUNCHER, "--version"], {
-      env,
+    const args = [...launcherPreload(hostOam, extraPreload), LAUNCHER, "--version"];
+    const { stdout, stderr } = await execFileAsync(process.execPath, args, {
+      env: launcherEnv(extraEnv),
       // Each case boots one to three Node processes, and a bare Node start has
       // been measured at ~11s on a contended Windows box. Generous on purpose:
       // this turns a hang into a failure, it is not a performance budget.
@@ -239,6 +253,74 @@ async function runLauncher(hostOam: string | undefined, extraEnv: Record<string,
     const e = err as { code?: number; stdout?: string; stderr?: string };
     return { code: typeof e.code === "number" ? e.code : -1, stdout: e.stdout ?? "", stderr: e.stderr ?? "" };
   }
+}
+
+type LiveRun = { code: number | null; stdout: string; stderr: string; answered: number[] };
+
+/**
+ * Run the REAL bin as a stdio MCP server (no `--version`) and prove it keeps
+ * serving past a given point, which `--version` exits too quickly to show.
+ *
+ * `initialize` (id 1) is written the moment the launcher starts, the way an MCP
+ * host writes it. Once it is answered AND `after` has matched stderr, `ping`
+ * (id 2) is sent; once that is answered too, stdin is closed and the run ends
+ * when the launcher exits. `answered` lists the ids that got a response. A
+ * launcher that dies early simply never answers, so every outcome resolves --
+ * the 60s guard only turns a genuine hang into a failure.
+ */
+function runLauncherLive(
+  hostOam: string | undefined,
+  extraEnv: Record<string, string>,
+  extraPreload: string,
+  after: RegExp,
+): Promise<LiveRun> {
+  const request = (id: number, method: string, params: object) =>
+    `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`;
+  return new Promise((resolvePromise) => {
+    const child = spawn(process.execPath, [...launcherPreload(hostOam, extraPreload), LAUNCHER], {
+      env: launcherEnv(extraEnv),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    const answered: number[] = [];
+    let pinged = false;
+    const guard = setTimeout(() => child.kill(), 60_000);
+    const step = () => {
+      for (const id of [1, 2]) {
+        if (!answered.includes(id) && new RegExp(`"id":${id}[,}]`).test(stdout)) answered.push(id);
+      }
+      if (!pinged && answered.includes(1) && after.test(stderr)) {
+        pinged = true;
+        child.stdin.write(request(2, "ping", {}));
+      }
+      if (answered.includes(2)) child.stdin.end();
+    };
+    // A launcher that has already exited closes its stdin; that EPIPE is the
+    // failure being observed, not a harness error.
+    child.stdin.on("error", () => {});
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      step();
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+      step();
+    });
+    child.on("close", (code) => {
+      clearTimeout(guard);
+      resolvePromise({ code, stdout, stderr, answered });
+    });
+    child.stdin.write(
+      request(1, "initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "launcher-test", version: "0" },
+      }),
+    );
+  });
 }
 
 const servedInProcess = (run: LauncherRun) =>
@@ -362,5 +444,78 @@ describe("launcher with no usable oam", () => {
     assert.equal(run.code, 1, JSON.stringify(run));
     assert.equal(run.stdout.trim(), "", "nothing may be served");
     assert.match(run.stderr, /LEMONSQUEEZY_MCP_RUNTIME=oam but no usable oam \(0\.15\.2 or newer\) was found/);
+  });
+
+  /**
+   * Preload that makes the launcher's FIRST spawn target a path that does not
+   * exist, and lets every later spawn through. The chosen oam has already
+   * passed its `--version` probe (that is execFileSync, not spawn), so this is
+   * a binary deleted or replaced between the probe and the spawn.
+   *
+   * A failed spawn emits 'error' and then 'close' with the negative errno. On an
+   * oam host the launcher pipes stdio and waits for 'close', so an unguarded
+   * close handler process.exit()ed the launcher in the middle of the fallback
+   * onLaunchFailed had just started.
+   *
+   * The failed child's 'close' is marked on stderr. This listener is attached
+   * inside spawn(), before the launcher attaches its own, so the marker is
+   * written before the launcher's handler runs: a launcher still answering
+   * after the marker has survived that 'close'.
+   */
+  const FAILED_SPAWN_CLOSED = "FAILED_SPAWN_CLOSED";
+  const failFirstSpawn = [
+    'import childProcess from "node:child_process";',
+    'import { syncBuiltinESMExports } from "node:module";',
+    'import { writeSync as writeMarker } from "node:fs";',
+    "const realSpawn = childProcess.spawn;",
+    "let failed = false;",
+    "childProcess.spawn = function (cmd, args, opts) {",
+    "  if (failed) return realSpawn.call(this, cmd, args, opts);",
+    "  failed = true;",
+    '  const child = realSpawn.call(this, cmd + ".does-not-exist", args, opts);',
+    `  child.on("close", () => writeMarker(2, ${JSON.stringify(FAILED_SPAWN_CLOSED)} + String.fromCharCode(10)));`,
+    "  return child;",
+    "};",
+    "syncBuiltinESMExports();",
+  ].join("\n");
+
+  it("still falls back when the chosen oam fails to spawn on an oam host", async () => {
+    // Below the floor: the fallback is a handoff to Node, which the failed
+    // child's 'close' used to kill before it could serve.
+    const run = await runLauncher("0.9.0", isolated({ OAM_BIN: process.execPath }), failFirstSpawn);
+    assert.equal(run.code, 0, JSON.stringify(run));
+    assert.equal(run.stdout.trim(), PKG_VERSION, "the Node fallback must still serve");
+    assert.match(
+      run.stderr,
+      /^lemonsqueezy-mcp: failed to launch oam at .*; this process is oam 0\.9\.0, older than 0\.15\.2; running on .*node.* instead\.$/m,
+    );
+    // A newer oam WAS found -- it is the one that failed to launch.
+    assert.doesNotMatch(run.stderr, /no newer oam was found/);
+    assert.match(run.stderr, /LAUNCHER_ARGV1=.*lemonsqueezy-mcp\.mjs/);
+  });
+
+  it("keeps serving a sandboxed supported oam host in-process after the fresh oam fails to spawn", async () => {
+    // At the floor with the sandbox on, the fallback is in-process on the host,
+    // without --permission. `--version` cannot show this regression: it exits
+    // before the failed child's 'close' arrives. A live server can -- the
+    // failed child's 'close' used to exit the launcher with the negative errno
+    // underneath the server it had just started.
+    const run = await runLauncherLive(
+      "0.15.2",
+      isolated({ LEMONSQUEEZY_MCP_SANDBOX: "1", OAM_BIN: process.execPath }),
+      failFirstSpawn,
+      new RegExp(FAILED_SPAWN_CLOSED),
+    );
+    assert.deepEqual(
+      run.answered,
+      [1, 2],
+      `must answer before AND after the failed child closes: ${JSON.stringify(run)}`,
+    );
+    assert.equal(run.code, 0, JSON.stringify(run));
+    assert.match(run.stderr, /LAUNCHER_ARGV1=.*dist[\\/]index\.js/, "served in-process, not by a child");
+    assert.match(
+      run.stderr,
+      /^lemonsqueezy-mcp: failed to launch oam at .*; serving on this oam 0\.15\.2 without --permission\.$/m,
+    );
   });
 });

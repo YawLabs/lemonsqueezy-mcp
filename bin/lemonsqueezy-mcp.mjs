@@ -66,10 +66,16 @@
  * fails -- no usable binary found, or a spawn that errors -- the server still
  * runs WITHOUT `--permission` under LEMONSQUEEZY_MCP_RUNTIME=auto: in-process
  * on Node or on an oam host at the floor, handed off to Node from an oam host
- * below it. A stderr note appears when a found binary or OAM_BIN was passed
- * over, a .cmd/.bat shim was skipped, or the spawn failed. That is how a
- * requested sandbox has always degraded, and only LEMONSQUEEZY_MCP_RUNTIME=oam
- * turns it into a failure.
+ * below it. That is how a requested sandbox has always degraded, and only
+ * LEMONSQUEEZY_MCP_RUNTIME=oam turns it into a failure.
+ *
+ * WHAT REACHES STDERR
+ * An unusable OAM_BIN is always named, whatever runs instead. The discovered
+ * binaries that were passed over, and any .cmd/.bat shim, are named only when
+ * NO usable oam is found -- a stale copy skipped for a newer one is silent. A
+ * chosen oam that fails to spawn is always reported, and so is a handoff from
+ * an oam host below the floor. A dropped sandbox gets no note of its own: with
+ * nothing else to report, the fallback is silent.
  *
  * THE `--permission` SANDBOX (opt-in)
  * `LEMONSQUEEZY_MCP_SANDBOX=1` runs the server under oam's permission model:
@@ -162,7 +168,7 @@ function pathKey(p) {
  * run a .cmd/.bat through execFile/spawn without `shell: true` (EINVAL, and for
  * spawn it throws SYNCHRONOUSLY rather than emitting 'error'), so walking the
  * full PATHEXT list would hand back a path this launcher cannot execute. A
- * skipped shim is still reported -- see findOamShim.
+ * skipped shim is still reported when no usable oam is found -- see findOamShim.
  */
 function discoverOamPaths() {
   const installed = [join(homedir(), ".oam", "bin", exe)];
@@ -342,8 +348,9 @@ async function errSync(message) {
 /**
  * An oam-named .cmd/.bat on PATH: a real install in a shape this launcher
  * cannot spawn. Reported rather than ignored, because "no oam binary was found"
- * reads as "install oam" -- the one thing that will not help. Windows only;
- * there is no such shim concept on POSIX.
+ * reads as "install oam" -- the one thing that will not help. Only looked for
+ * when no usable oam was found, so a shim beside a working oam.exe is never
+ * mentioned. Windows only; there is no such shim concept on POSIX.
  */
 function findOamShim() {
   if (!isWin) return null;
@@ -436,9 +443,10 @@ const fallbackFailed = (e) => {
  * on the same stdio.
  */
 async function launchChild(cmd, args, onLaunchFailed) {
-  // Any handoff from an oam host pipes: below the floor its `stdio: 'inherit'`
-  // does not hand over the fds, and a supported host only gets here when the
-  // sandbox asked for a fresh oam. See ALREADY RUNNING ON OAM.
+  // Any spawn from an oam host pipes. Below the floor its `stdio: 'inherit'`
+  // does not hand over the fds. A supported host only gets here in two cases:
+  // the sandbox asked for a fresh oam, or LEMONSQUEEZY_MCP_RUNTIME=node handed
+  // the server off to Node (handOffToNode). See ALREADY RUNNING ON OAM.
   const piped = process.versions.oam !== undefined;
   let child = null;
   try {
@@ -460,26 +468,34 @@ async function launchChild(cmd, args, onLaunchFailed) {
     return;
   }
 
-  if (piped) {
-    process.stdin.pipe(child.stdin);
-    child.stdout.pipe(process.stdout);
-    child.stderr.pipe(process.stderr);
-    // A child that exits before reading everything closes its stdin; the
-    // resulting EPIPE is not worth crashing over.
-    child.stdin.on("error", () => {});
-  }
-
-  // If the runtime cannot be executed at all (deleted between the stat and the
-  // spawn, wrong arch, permission), fall back rather than failing the whole
-  // server. `spawned` prevents falling back AFTER the child started.
+  // If the runtime cannot be executed at all (deleted between the version probe
+  // and the spawn, wrong arch, permission), fall back rather than failing the
+  // whole server. `spawned` prevents falling back AFTER the child started.
+  //
+  // Everything that assumes a live child waits for 'spawn'. A failed spawn
+  // still emits 'close' (after 'error', with the negative errno as its code), so
+  // an unguarded close handler would process.exit() out from under the fallback
+  // onLaunchFailed has just started. And stdin piped into a child that never ran
+  // takes input away from that fallback: measured with the in-process fallback,
+  // the host's first request was answered and the next one never arrived. Until
+  // 'spawn', process.stdin has no reader and simply stays paused.
   let spawned = false;
   child.on("spawn", () => {
     spawned = true;
+    if (piped) {
+      process.stdin.pipe(child.stdin);
+      child.stdout.pipe(process.stdout);
+      child.stderr.pipe(process.stderr);
+    }
+    forwardSignals();
   });
   child.on("error", (err) => {
     if (spawned) return;
     onLaunchFailed(err).catch(fallbackFailed);
   });
+  // A child that exits before reading everything closes its stdin; the
+  // resulting EPIPE is not worth crashing over.
+  child.stdin?.on("error", () => {});
 
   // Forward termination so the server's own shutdown path runs in the child
   // rather than the child being orphaned.
@@ -509,25 +525,29 @@ async function launchChild(cmd, args, onLaunchFailed) {
   // child, so on Windows the timer below is the only kill we issue.
   const ESCALATE_AFTER_MS = 2000;
   let escalation = null;
-  for (const sig of ["SIGINT", "SIGTERM"]) {
-    process.on(sig, () => {
-      // No try/catch: kill() on an already-exited child returns false, it does
-      // not throw. It throws only for a signal the platform does not know,
-      // which SIGINT/SIGTERM/SIGKILL never are.
-      if (!isWin) child.kill(sig);
-      if (escalation) return; // already counting down; further signals are noise
-      escalation = setTimeout(() => {
-        // Still here after its grace window. Stop waiting on it.
-        child.kill("SIGKILL");
-        process.exit(128 + (constants.signals[sig] ?? 15));
-      }, ESCALATE_AFTER_MS);
-    });
+  function forwardSignals() {
+    for (const sig of ["SIGINT", "SIGTERM"]) {
+      process.on(sig, () => {
+        // No try/catch: kill() on an already-exited child returns false, it does
+        // not throw. It throws only for a signal the platform does not know,
+        // which SIGINT/SIGTERM/SIGKILL never are.
+        if (!isWin) child.kill(sig);
+        if (escalation) return; // already counting down; further signals are noise
+        escalation = setTimeout(() => {
+          // Still here after its grace window. Stop waiting on it.
+          child.kill("SIGKILL");
+          process.exit(128 + (constants.signals[sig] ?? 15));
+        }, ESCALATE_AFTER_MS);
+      });
+    }
   }
 
   // Piped: wait for 'close', so the child's last stdout bytes are copied out
   // before this process exits. Inherited: 'exit' is enough, the fds were never
-  // ours to drain.
+  // ours to drain. Either way, only for a child that actually ran -- see the
+  // 'spawn' handler above.
   child.on(piped ? "close" : "exit", (code, signal) => {
+    if (!spawned) return;
     if (escalation) clearTimeout(escalation);
     // Mirror the child's fate: a signal death becomes 128+n so callers see a
     // conventional shell exit status rather than a bare 0.
@@ -561,7 +581,9 @@ async function handOffToNode(reason) {
 
 /**
  * No oam was spawned, under a mode that allows falling back. `note` is what was
- * passed over, or "" when there is nothing to say.
+ * passed over, or "" when there is nothing to say. `newerFound` is true when a
+ * usable oam WAS chosen and only its launch failed, so the below-floor handoff
+ * note does not claim that no newer oam exists.
  *
  * Node, and an oam host at the floor, serve in-process. The latter is reachable
  * only with the sandbox requested -- a supported host otherwise never reaches
@@ -569,7 +591,7 @@ async function handOffToNode(reason) {
  * always has when no fresh oam could be started. An oam host below the floor
  * never serves and hands off to Node.
  */
-async function fallBack(hostOam, note) {
+async function fallBack(hostOam, note, newerFound = false) {
   if (hostOam === undefined) {
     if (note) await errSync(`lemonsqueezy-mcp: ${note}; using Node instead.\n`);
     await runInProcess();
@@ -580,9 +602,8 @@ async function fallBack(hostOam, note) {
     await runInProcess();
     return;
   }
-  await handOffToNode(
-    `${note ? `${note}; ` : ""}this process is oam ${hostOam}, older than ${OAM_MIN.join(".")}, and no newer oam was found`,
-  );
+  const why = `this process is oam ${hostOam}, older than ${OAM_MIN.join(".")}${newerFound ? "" : ", and no newer oam was found"}`;
+  await handOffToNode(`${note ? `${note}; ` : ""}${why}`);
 }
 
 const mode = (process.env.LEMONSQUEEZY_MCP_RUNTIME ?? "auto").toLowerCase();
@@ -614,7 +635,7 @@ if (plan === "in-process") {
         await errSync(`lemonsqueezy-mcp: ${failed}\n`);
         process.exit(1);
       }
-      await fallBack(hostOam, failed);
+      await fallBack(hostOam, failed, true);
     });
   } else {
     const shim = findOamShim();
