@@ -16,6 +16,13 @@
 
 - **Variant tools warn that `price` is not the charged amount.** A variant payload has nothing to derive a charged price from, so `ls_get_variant` and `ls_list_variants` now say so in their descriptions and point at `ls_list_prices`. `ls_list_prices` also documents that a variant can carry several price records, the current one being the newest by `created_at`.
 
+### Fixed
+
+- **The launcher no longer starts a second oam when it is already running on one.** A host that resolves this package's `bin` and launches `oam run bin/lemonsqueezy-mcp.mjs` -- Yaw MCP does, and so does oam's sidecar regression matrix -- got a nested runtime: the launcher discovered and spawned an oam without asking what it was already running on, so one server cost two runtime boots, measured on Windows as `oam.exe` with a nested `oam.exe` + `conhost.exe` underneath it. When `process.versions.oam` clears the same 0.9.0 floor a discovered binary has to, the server is now imported into the running process: no discovery, no `oam --version` probe, no second oam. `OAM_BIN` is not consulted on that path, since the host has already chosen which oam runs.
+
+  Two cases still take the discovery path: `LEMONSQUEEZY_MCP_SANDBOX=1`, because `--permission` is a process-level flag only a freshly started oam can apply, and a host oam below the floor. That is a preference for a fresh oam, not a guarantee of one. If discovery then fails -- no binary found, one below the floor or unreadable, or a spawn that errors -- the existing fallback still serves the server in-process **without** `--permission` under the default `LEMONSQUEEZY_MCP_RUNTIME=auto`, as it did before this change. `LEMONSQUEEZY_MCP_RUNTIME=oam` is what turns that into a hard failure.
+- **`npm run check:oam` type-checks again.** It failed before checking anything with `TS2688: Cannot find type definition file for 'node'`: `oam check` extends this tsconfig from oam's cache directory, and from there tsgo does not find `@types/node` when the project names only `types: ["node"]`. `tsconfig.json` now declares `typeRoots`, which resolves the lookup relative to the file. Stock `tsc` was never affected, and the built `dist/` is byte-identical with and without it.
+
 ## [0.13.3] — 2026-09-11
 
 No runtime changes: nothing under `src/` changed and no dependency moved. This release is tooling, packaging metadata and docs. This entry was backfilled -- `[Unreleased]` was empty when 0.13.3 was cut, so its GitHub release notes fell back to bare commit subjects.
