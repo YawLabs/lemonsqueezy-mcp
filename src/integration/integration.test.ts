@@ -22,8 +22,10 @@ import { _resetApiKeyCacheForTest } from "../secret.js";
 import { customerTools } from "../tools/customers.js";
 import { discountTools } from "../tools/discounts.js";
 import { orderTools } from "../tools/orders.js";
+import { priceTools } from "../tools/prices.js";
 import { productTools } from "../tools/products.js";
 import { storeTools } from "../tools/stores.js";
+import { subscriptionItemTools } from "../tools/subscription-items.js";
 import { subscriptionTools } from "../tools/subscriptions.js";
 import { userTools } from "../tools/users.js";
 import { variantTools } from "../tools/variants.js";
@@ -216,6 +218,127 @@ describe("integration (real LemonSqueezy API)", { skip: !enabled }, () => {
     assert.equal(result.ok, false);
     assert.equal(result.status, 404);
     assert.ok(result.error && result.error.length > 0);
+  });
+});
+
+/**
+ * Price reads. Pure GETs -- creates nothing.
+ *
+ * The unit suite mocks `globalThis.fetch`, so it cannot see upstream schema
+ * drift, and `api.ts` sits under every tool call. The specific drift that
+ * would hurt most here is silent: `numericPrice()` reads `unit_price_decimal`
+ * only when it is a STRING, and the integer it falls back to is null on
+ * exactly the metered records that populate the decimal -- so the day LS
+ * sends that field as a JSON number, every metered price reports
+ * `effective_unit_price: null` with no error anywhere. Only a real payload
+ * catches it.
+ */
+describe("integration price reads (real LemonSqueezy API)", { skip: !enabled }, () => {
+  type PriceRecord = { id?: string; attributes?: Record<string, unknown> };
+
+  it("annotates real price records, and the payload matches what the tool descriptions claim", async () => {
+    // Discover a variant rather than hardcoding one -- the throwaway store's
+    // ids differ per operator.
+    const variants = await run(findTool(variantTools, "ls_list_variants"), { pageSize: 10 });
+    assert.equal(variants.ok, true, `list variants failed: ${variants.error}`);
+    const variantId = (variants.data as { data?: Array<{ id?: string }> }).data?.[0]?.id;
+    if (!variantId) return; // a store with no variants has no prices to check
+
+    const prices = await run(findTool(priceTools, "ls_list_prices"), { variantId, pageSize: 25 });
+    assert.equal(prices.ok, true, `list prices failed: ${prices.error}`);
+    const records = (prices.data as { data?: PriceRecord[] }).data ?? [];
+    if (records.length === 0) return; // variant with no price records
+
+    for (const record of records) {
+      const attrs = record.attributes ?? {};
+      const where = `price ${record.id}`;
+
+      // The annotation must reach REAL payloads, not just fixtures -- this is
+      // the only test that proves the wiring against the live API.
+      assert.ok("effective_unit_price" in attrs, `${where} came back unannotated`);
+      assert.ok("effective_unit_price_note" in attrs, `${where} has no provenance note`);
+
+      // Drift canary, per the block comment above.
+      const decimal = attrs.unit_price_decimal;
+      if (decimal !== null && decimal !== undefined) {
+        assert.equal(
+          typeof decimal,
+          "string",
+          `${where}: unit_price_decimal arrived as ${typeof decimal}, not a string. numericPrice() ignores a ` +
+            "non-string decimal and falls back to unit_price, which is null on exactly the metered records " +
+            "that populate the decimal -- so every one of them would silently report a null charged price.",
+        );
+      }
+
+      // `scheme` is what routes the whole derivation; a new or renamed value
+      // upstream would fall through to the flat branch unnoticed.
+      assert.equal(typeof attrs.scheme, "string", `${where}: scheme is not a string`);
+      assert.ok(
+        ["standard", "package", "graduated", "volume"].includes(attrs.scheme as string),
+        `${where}: unknown scheme ${JSON.stringify(attrs.scheme)} -- LS has added a pricing model and ` +
+          "computeEffectivePrice() is treating it as a flat price. Decide which branch it belongs in.",
+      );
+
+      // The per-scheme contract the tool descriptions promise.
+      if (attrs.scheme === "volume" || attrs.scheme === "graduated") {
+        assert.ok(Array.isArray(attrs.tiers), `${where}: a tiered scheme arrived without a tiers[] array`);
+        assert.equal(attrs.unit_price_is_not_charged, true, `${where}: tiered record is missing the warning flag`);
+        const firstTier = (attrs.tiers as Array<Record<string, unknown>>)[0];
+        if (firstTier && typeof firstTier.unit_price === "number") {
+          assert.equal(
+            attrs.effective_unit_price,
+            firstTier.unit_price,
+            `${where}: effective_unit_price must be the first tier's rate, not the vestigial unit_price`,
+          );
+        }
+      } else if (attrs.scheme === "package") {
+        // Documented to be 1 for every non-package scheme, so it is always a
+        // number -- and it is the divisor for the per-unit figure.
+        assert.equal(typeof attrs.package_size, "number", `${where}: package scheme without a numeric package_size`);
+        assert.equal(
+          attrs.unit_price_is_not_charged,
+          undefined,
+          `${where}: package pricing DOES charge unit_price -- the not-charged flag would be a lie`,
+        );
+      }
+    }
+
+    // `ls_list_prices` tells the agent, in its own description, that the
+    // current price is the newest by created_at because results are sorted
+    // newest-first. That is a claim about LS's default sort baked into
+    // user-facing guidance: if it is wrong, agents quote superseded prices.
+    const createdAt = records.map((r) => r.attributes?.created_at).filter((v): v is string => typeof v === "string");
+    for (let i = 1; i < createdAt.length; i++) {
+      assert.ok(
+        Date.parse(createdAt[i - 1] as string) >= Date.parse(createdAt[i] as string),
+        "prices did not come back newest-first, so the ls_list_prices DESCRIPTION is wrong (not this test): " +
+          "it tells agents the current price is the newest by created_at because results are sorted " +
+          `newest-first. Got ${createdAt[i - 1]} before ${createdAt[i]}.`,
+      );
+    }
+  });
+
+  it("annotates a price embedded via ?include=price on a subscription item", async () => {
+    // The seat-based-billing path. Skips cleanly on a store with no
+    // subscriptions, which is the normal state of a fresh throwaway store.
+    const items = await run(findTool(subscriptionItemTools, "ls_list_subscription_items"), { pageSize: 5 });
+    if (!items.ok) return; // no subscriptions in this store, nothing to assert
+    const first = (items.data as { data?: Array<{ id?: string }> }).data?.[0]?.id;
+    if (!first) return;
+
+    const got = await run(findTool(subscriptionItemTools, "ls_get_subscription_item"), {
+      subscriptionItemId: first,
+      include: "price",
+    });
+    assert.equal(got.ok, true, `get subscription item failed: ${got.error}`);
+    const included = (got.data as { included?: PriceRecord[] }).included ?? [];
+    const price = included.find((r) => (r as { type?: string }).type === "prices");
+    if (!price) return; // the include is advisory; LS omitted it
+    assert.ok(
+      "effective_unit_price" in (price.attributes ?? {}),
+      "an embedded price record reached the caller unannotated -- the seat-based-billing path is the one " +
+        "most likely to be read as a per-seat rate",
+    );
   });
 });
 

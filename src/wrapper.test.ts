@@ -24,6 +24,10 @@
  *   - isDestructive predicates (e.g. ls_update_license_key with
  *     activationLimit) flow through the wrapper, not just the static
  *     destructiveHint annotation
+ *   - The REAL price tools, driven through createToolHandler with a mocked
+ *     fetch, so a response-side annotation the handler DERIVED is asserted on
+ *     the serialized text the client actually receives -- every other test
+ *     here uses a synthetic handler that echoes a literal back
  */
 
 import assert from "node:assert/strict";
@@ -31,6 +35,8 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { z } from "zod";
 import { _resetAuditBufferForTest, readAuditEntries } from "./audit-buffer.js";
 import { _resetGuardrailsForTest, GuardrailError, ToolInputError } from "./guardrails.js";
+import { _resetApiKeyCacheForTest } from "./secret.js";
+import { priceTools } from "./tools/prices.js";
 import { createToolHandler, type McpToolResult, type RegisterableTool, readAuditLogResource } from "./wrapper.js";
 
 const ENV_KEYS = [
@@ -762,6 +768,190 @@ describe("createToolHandler -- registration wrapper", () => {
       assert.equal(entries[0]?.audit, true);
       assert.equal(entries[0]?.error, "Refund window closed");
       assert.equal(entries[0]?.request_id, "req_abc");
+    });
+  });
+
+  // Everything above drives a synthetic tool whose handler returns a literal,
+  // so the only thing the assertions can see is a value the test itself put
+  // there. Production never does that: `index.ts` registers the REAL tool
+  // objects, and what the agent receives is the success branch's
+  // `JSON.stringify(response.data ?? { success: true }, null, 2)`.
+  //
+  // That leaves a field the handler DERIVES -- `effective_unit_price`, added
+  // response-side by `withEffectivePrice` -- with no test on the production
+  // path. `tools/handlers.test.ts` asserts it on the raw handler return, this
+  // file never mentions it, and tsc cannot see it either (the annotation
+  // wrapper is deliberately type-transparent). So dropping it between the
+  // handler and the client -- unwrapping the tool, or a stringify replacer
+  // that skipped the added keys -- would leave every gate green while the
+  // agent got back a `unit_price` that is confidently wrong.
+  //
+  // These tests close that path: real tool -> guardrails -> handler ->
+  // audit -> serialize -> JSON.parse of the text the client receives.
+  describe("real price tools end to end -- serialized MCP payload", () => {
+    // secret.ts prefers LEMONSQUEEZY_API_KEY_COMMAND, then
+    // LEMONSQUEEZY_TEST_API_KEY, then LEMONSQUEEZY_API_KEY. Clearing all three
+    // is what keeps a developer's (or CI's) real key out of the run; restoring
+    // them is what keeps this block from leaking into the sibling tests.
+    const KEY_ENV = ["LEMONSQUEEZY_API_KEY", "LEMONSQUEEZY_TEST_API_KEY", "LEMONSQUEEZY_API_KEY_COMMAND"] as const;
+    const originalFetch = globalThis.fetch;
+    let keyEnvSnapshot: Record<string, string | undefined>;
+    let fetchCalls = 0;
+
+    function mockFetch(body: unknown) {
+      globalThis.fetch = (async () => {
+        fetchCalls += 1;
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/vnd.api+json" },
+        });
+      }) as typeof fetch;
+    }
+
+    // `priceTools` is `as const`, so `.find()` hands back a union of the two
+    // literal tool types. `index.ts` absorbs the same union by declaring its
+    // registration array as `RegisterableTool<any>[]`; this is the test-local
+    // equivalent, and it keeps createToolHandler's inference off a union.
+    function priceTool(name: string): RegisterableTool<Record<string, unknown>> {
+      const tool = priceTools.find((t) => t.name === name);
+      if (!tool) throw new Error(`Tool ${name} not found`);
+      return tool as unknown as RegisterableTool<Record<string, unknown>>;
+    }
+
+    // A per-seat "volume" price: `unit_price` reads 2000 and is charged to
+    // nobody, while tiers[0] holds the 10000 cents actually billed. Same
+    // record as the one in tools/handlers.test.ts, so both files pin the
+    // same payload from opposite ends of the wrapper.
+    function tieredPriceResource() {
+      return {
+        type: "prices",
+        id: "3",
+        attributes: {
+          scheme: "volume",
+          unit_price: 2000,
+          unit_price_decimal: null,
+          tiers: [{ last_unit: "inf", unit_price: 10000, unit_price_decimal: null, fixed_fee: 0 }],
+          package_size: 1,
+        },
+      };
+    }
+
+    function packagePriceResource() {
+      return {
+        type: "prices",
+        id: "9",
+        attributes: {
+          scheme: "package",
+          unit_price: 5000,
+          unit_price_decimal: null,
+          tiers: null,
+          package_size: 5,
+        },
+      };
+    }
+
+    beforeEach(() => {
+      keyEnvSnapshot = {};
+      for (const k of KEY_ENV) {
+        keyEnvSnapshot[k] = process.env[k];
+        delete process.env[k];
+      }
+      process.env.LEMONSQUEEZY_API_KEY = "test-key-123";
+      _resetApiKeyCacheForTest();
+      fetchCalls = 0;
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+      for (const k of KEY_ENV) {
+        const saved = keyEnvSnapshot[k];
+        if (saved === undefined) delete process.env[k];
+        else process.env[k] = saved;
+      }
+      _resetApiKeyCacheForTest();
+    });
+
+    it("ls_list_prices: effective_unit_price survives into the serialized MCP text", async () => {
+      mockFetch({ data: [tieredPriceResource()], meta: { page: { currentPage: 1, lastPage: 1, total: 1 } } });
+      const result = await createToolHandler(priceTool("ls_list_prices"))({ variantId: "7" });
+      assert.equal(result.isError, undefined);
+      assert.equal(result.content.length, 1);
+      assert.equal(result.content[0]?.type, "text");
+
+      // Assert on the TEXT, not only on the parse: the serialized string is
+      // the whole of what crosses the wire, and it is what a replacer added
+      // to the stringify call at wrapper.ts:235 would have to leave intact.
+      // The `": 10000"` suffix keeps this off the `_note` key, which spells
+      // the same prefix.
+      const text = result.content[0]?.text ?? "";
+      assert.ok(
+        text.includes('"effective_unit_price": 10000'),
+        `serialized payload must carry the charged price, got ${text}`,
+      );
+
+      const parsed = JSON.parse(text);
+      const attrs = parsed.data[0].attributes;
+      assert.equal(attrs.effective_unit_price, 10000);
+      assert.equal(attrs.unit_price_is_not_charged, true);
+      assert.ok(
+        String(attrs.effective_unit_price_note).includes("tiers[0].unit_price (10000 cents)"),
+        `note must name the source field, got ${String(attrs.effective_unit_price_note)}`,
+      );
+      // The annotation only ever ADDS keys, and the wrapper reshapes nothing:
+      // the raw upstream fields and the pagination sibling arrive untouched.
+      assert.equal(attrs.unit_price, 2000);
+      assert.equal(attrs.scheme, "volume");
+      assert.deepEqual(parsed.meta, { page: { currentPage: 1, lastPage: 1, total: 1 } });
+      // A price read is non-destructive, so nothing reaches the audit ring.
+      assert.equal(readAuditEntries().length, 0);
+    });
+
+    it("ls_get_price: the single-record get shape is annotated through the same path", async () => {
+      // `{ data: {...} }` is a separate branch of annotatePricePayload from
+      // the list's `{ data: [...] }`, and ls_get_price is wrapped separately
+      // from ls_list_prices -- one test cannot cover both.
+      mockFetch({ data: tieredPriceResource() });
+      const result = await createToolHandler(priceTool("ls_get_price"))({ priceId: "3" });
+      assert.equal(result.isError, undefined);
+
+      const parsed = JSON.parse(result.content[0]?.text ?? "");
+      assert.equal(parsed.data.type, "prices");
+      assert.equal(parsed.data.id, "3");
+      assert.equal(parsed.data.attributes.effective_unit_price, 10000);
+      assert.equal(parsed.data.attributes.unit_price_is_not_charged, true);
+      assert.equal(parsed.data.attributes.unit_price, 2000);
+    });
+
+    it("package pricing: the per-unit figure and unit_price_is_per_package survive too", async () => {
+      // A different key family from the tiered branch. A regression that
+      // dropped only `unit_price_is_per_package` would leave the two tests
+      // above green while a $50-per-5-seats price still read as $50 a seat.
+      mockFetch({ data: [packagePriceResource()] });
+      const result = await createToolHandler(priceTool("ls_list_prices"))({ variantId: "7" });
+      assert.equal(result.isError, undefined);
+
+      const attrs = JSON.parse(result.content[0]?.text ?? "").data[0].attributes;
+      assert.equal(attrs.effective_unit_price, 1000);
+      assert.equal(attrs.unit_price_is_per_package, true);
+      assert.ok(
+        !("unit_price_is_not_charged" in attrs),
+        "package unit_price IS charged -- flagging it as not charged would be the expensive lie",
+      );
+      assert.ok(String(attrs.effective_unit_price_note).includes("per package of 5 unit(s)"));
+      assert.equal(attrs.unit_price, 5000);
+    });
+
+    it("the store-allowlist gate fires on the REAL tool, before any HTTP call", async () => {
+      // `requiredFilters` lives on the shipped tool object, so this is the
+      // assertion a synthetic stand-in cannot make: that ls_list_prices still
+      // declares `variantId`, and that the wrapper rejects ahead of the
+      // handler rather than after a round trip to the API.
+      process.env.LEMONSQUEEZY_ALLOWED_STORE_IDS = "111";
+      mockFetch({ data: [] });
+      const result = await createToolHandler(priceTool("ls_list_prices"))({});
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /At least one of \[variantId\]/);
+      assert.equal(fetchCalls, 0, "a guardrail-blocked call must never reach the API");
     });
   });
 });
