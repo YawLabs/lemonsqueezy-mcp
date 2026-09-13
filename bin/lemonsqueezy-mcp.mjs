@@ -70,12 +70,14 @@
  * LEMONSQUEEZY_MCP_RUNTIME=oam turns it into a failure.
  *
  * WHAT REACHES STDERR
- * An unusable OAM_BIN is always named, whatever runs instead. The discovered
- * binaries that were passed over, and any .cmd/.bat shim, are named only when
- * NO usable oam is found -- a stale copy skipped for a newer one is silent. A
- * chosen oam that fails to spawn is always reported, and so is a handoff from
- * an oam host below the floor. A dropped sandbox gets no note of its own: with
- * nothing else to report, the fallback is silent.
+ * An unusable OAM_BIN is always named when discovery runs, whatever runs
+ * instead. The discovered binaries that were passed over, and any .cmd/.bat
+ * shim, are named only when NO usable oam is found -- a stale copy skipped for
+ * a newer one is silent. A chosen oam that fails to spawn is always reported,
+ * and so is a handoff TO NODE from an oam host below the floor. A below-floor
+ * host that hands off to a newer oam prints nothing: that is an ordinary spawn
+ * of the chosen oam. A dropped sandbox gets no note of its own: with nothing
+ * else to report, the fallback is silent.
  *
  * THE `--permission` SANDBOX (opt-in)
  * `LEMONSQUEEZY_MCP_SANDBOX=1` runs the server under oam's permission model:

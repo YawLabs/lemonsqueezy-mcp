@@ -13,7 +13,7 @@
 
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, it } from "node:test";
@@ -364,25 +364,58 @@ describe("launcher on an oam host", () => {
   });
 });
 
-describe("launcher with no usable oam", () => {
-  /**
-   * An environment with no oam anywhere: HOME and LOCALAPPDATA point at an
-   * empty directory, so the installed locations are empty, and PATH holds only
-   * the directory of the Node running this test. Keeps a real oam on the
-   * developer's box out of reach.
-   */
-  function isolated(extra: Record<string, string> = {}): Record<string, string> {
-    const empty = mkdtempSync(join(tmpdir(), "lemonsqueezy-mcp-launcher-home-"));
-    return {
-      PATH: dirname(process.execPath),
-      USERPROFILE: empty,
-      HOME: empty,
-      LOCALAPPDATA: empty,
-      OAM_BIN: join(tmpdir(), "no-such-dir", "oam.exe"),
-      ...extra,
-    };
-  }
+/**
+ * An environment with no oam anywhere: HOME and LOCALAPPDATA point at an
+ * empty directory, so the installed locations are empty, and PATH holds only
+ * the directory of the Node running this test. Keeps a real oam on the
+ * developer's box out of reach.
+ */
+function isolated(extra: Record<string, string> = {}): Record<string, string> {
+  const empty = mkdtempSync(join(tmpdir(), "lemonsqueezy-mcp-launcher-home-"));
+  return {
+    PATH: dirname(process.execPath),
+    USERPROFILE: empty,
+    HOME: empty,
+    LOCALAPPDATA: empty,
+    OAM_BIN: join(tmpdir(), "no-such-dir", "oam.exe"),
+    ...extra,
+  };
+}
 
+/**
+ * Preload that makes the launcher's FIRST spawn target a path that does not
+ * exist, and lets every later spawn through. The chosen oam has already
+ * passed its `--version` probe (that is execFileSync, not spawn), so this is
+ * a binary deleted or replaced between the probe and the spawn.
+ *
+ * A failed spawn emits 'error' and then 'close' with the negative errno. On an
+ * oam host the launcher pipes stdio and waits for 'close', so an unguarded
+ * close handler process.exit()ed the launcher in the middle of the fallback
+ * onLaunchFailed had just started.
+ *
+ * The failed child's 'close' is marked on stderr. This listener is attached
+ * inside spawn(), before the launcher attaches its own, so the marker is
+ * written before the launcher's handler runs: a launcher still answering
+ * after the marker has survived that 'close'.
+ */
+const FAILED_SPAWN_CLOSED = "FAILED_SPAWN_CLOSED";
+const failFirstSpawn = [
+  'import childProcess from "node:child_process";',
+  'import { syncBuiltinESMExports } from "node:module";',
+  'import { writeSync as writeMarker } from "node:fs";',
+  "const realSpawn = childProcess.spawn;",
+  "let failed = false;",
+  "childProcess.spawn = function (cmd, args, opts) {",
+  "  if (failed) return realSpawn.call(this, cmd, args, opts);",
+  "  failed = true;",
+  '  const child = realSpawn.call(this, cmd + ".does-not-exist", args, opts);',
+  `  child.on("close", () => writeMarker(2, ${JSON.stringify(FAILED_SPAWN_CLOSED)} + String.fromCharCode(10)));`,
+  "  return child;",
+  "};",
+  "syncBuiltinESMExports();",
+].join("\n");
+
+describe("launcher with no usable oam", () => {
   it("names an OAM_BIN that does not exist instead of falling back silently", async () => {
     const run = await runLauncher(undefined, isolated());
     assert.equal(servedInProcess(run), true, JSON.stringify(run));
@@ -446,39 +479,6 @@ describe("launcher with no usable oam", () => {
     assert.match(run.stderr, /LEMONSQUEEZY_MCP_RUNTIME=oam but no usable oam \(0\.15\.2 or newer\) was found/);
   });
 
-  /**
-   * Preload that makes the launcher's FIRST spawn target a path that does not
-   * exist, and lets every later spawn through. The chosen oam has already
-   * passed its `--version` probe (that is execFileSync, not spawn), so this is
-   * a binary deleted or replaced between the probe and the spawn.
-   *
-   * A failed spawn emits 'error' and then 'close' with the negative errno. On an
-   * oam host the launcher pipes stdio and waits for 'close', so an unguarded
-   * close handler process.exit()ed the launcher in the middle of the fallback
-   * onLaunchFailed had just started.
-   *
-   * The failed child's 'close' is marked on stderr. This listener is attached
-   * inside spawn(), before the launcher attaches its own, so the marker is
-   * written before the launcher's handler runs: a launcher still answering
-   * after the marker has survived that 'close'.
-   */
-  const FAILED_SPAWN_CLOSED = "FAILED_SPAWN_CLOSED";
-  const failFirstSpawn = [
-    'import childProcess from "node:child_process";',
-    'import { syncBuiltinESMExports } from "node:module";',
-    'import { writeSync as writeMarker } from "node:fs";',
-    "const realSpawn = childProcess.spawn;",
-    "let failed = false;",
-    "childProcess.spawn = function (cmd, args, opts) {",
-    "  if (failed) return realSpawn.call(this, cmd, args, opts);",
-    "  failed = true;",
-    '  const child = realSpawn.call(this, cmd + ".does-not-exist", args, opts);',
-    `  child.on("close", () => writeMarker(2, ${JSON.stringify(FAILED_SPAWN_CLOSED)} + String.fromCharCode(10)));`,
-    "  return child;",
-    "};",
-    "syncBuiltinESMExports();",
-  ].join("\n");
-
   it("still falls back when the chosen oam fails to spawn on an oam host", async () => {
     // Below the floor: the fallback is a handoff to Node, which the failed
     // child's 'close' used to kill before it could serve.
@@ -517,5 +517,88 @@ describe("launcher with no usable oam", () => {
       run.stderr,
       /^lemonsqueezy-mcp: failed to launch oam at .*; serving on this oam 0\.15\.2 without --permission\.$/m,
     );
+  });
+});
+
+/**
+ * Preload that answers the launcher's `oam --version` probe for any binary
+ * whose path contains one of `versions`' keys, and passes every other
+ * execFileSync through. Lets empty placeholder files stand in for oam binaries
+ * of chosen versions, so discovery can be driven without a real oam.
+ */
+function fakeOamVersions(versions: Record<string, string>): string {
+  return [
+    'import cpForVersions from "node:child_process";',
+    'import { syncBuiltinESMExports as syncFakeVersions } from "node:module";',
+    "const realExecFileSync = cpForVersions.execFileSync;",
+    `const fakeVersions = ${JSON.stringify(versions)};`,
+    "cpForVersions.execFileSync = function (cmd, args, opts) {",
+    "  for (const [marker, version] of Object.entries(fakeVersions)) {",
+    '    if (String(cmd).includes(marker)) return "oam " + version + String.fromCharCode(10);',
+    "  }",
+    "  return realExecFileSync.call(this, cmd, args, opts);",
+    "};",
+    "syncFakeVersions();",
+  ].join("\n");
+}
+
+/**
+ * Preload that writes the `stdio` option of every spawn() the launcher makes to
+ * stderr, one `SPAWN_STDIO=<json>` line per call, then spawns as normal. Under
+ * real Node a piped and an inherited handoff serve identically, so the option
+ * itself is the only thing that shows which one the launcher chose.
+ */
+const recordSpawnStdio = [
+  'import cpForStdio from "node:child_process";',
+  'import { syncBuiltinESMExports as syncSpawnStdio } from "node:module";',
+  'import { writeSync as writeStdioLine } from "node:fs";',
+  "const realSpawnForStdio = cpForStdio.spawn;",
+  "cpForStdio.spawn = function (cmd, args, opts) {",
+  '  writeStdioLine(2, "SPAWN_STDIO=" + JSON.stringify(opts?.stdio) + String.fromCharCode(10));',
+  "  return realSpawnForStdio.call(this, cmd, args, opts);",
+  "};",
+  "syncSpawnStdio();",
+].join("\n");
+
+describe("launcher wiring", () => {
+  // pickNewest() and runtimePlan() are pinned above as pure functions. These pin
+  // that the launcher actually calls them the way it says: a launcher that took
+  // the first usable oam, or never piped, would pass every unit test above.
+
+  it("spawns the newest discovered oam, not the first one found", async () => {
+    // An installed oam at the floor, searched first, and a newer one on PATH.
+    // Both are empty placeholder files; the preload answers their version
+    // probes, and makes the spawn fail so the run ends in-process on Node.
+    const exe = process.platform === "win32" ? "oam.exe" : "oam";
+    const home = mkdtempSync(join(tmpdir(), "lemonsqueezy-mcp-launcher-installed-"));
+    const onPath = mkdtempSync(join(tmpdir(), "lemonsqueezy-mcp-launcher-onpath-"));
+    mkdirSync(join(home, ".oam", "bin"), { recursive: true });
+    writeFileSync(join(home, ".oam", "bin", exe), "");
+    writeFileSync(join(onPath, exe), "");
+
+    const run = await runLauncher(
+      undefined,
+      isolated({ USERPROFILE: home, HOME: home, LOCALAPPDATA: home, PATH: onPath }),
+      `${fakeOamVersions({ "launcher-installed-": "0.15.2", "launcher-onpath-": "0.16.0" })}\n${failFirstSpawn}`,
+    );
+    assert.equal(servedInProcess(run), true, JSON.stringify(run));
+    // The OAM_BIN note names the oam chosen in its place, with its version.
+    assert.match(
+      run.stderr,
+      /^lemonsqueezy-mcp: OAM_BIN=.* does not exist; using .*launcher-onpath-.* \(oam 0\.16\.0\)\.$/m,
+    );
+    assert.match(run.stderr, /^lemonsqueezy-mcp: failed to launch oam at .*launcher-onpath-.*; using Node instead\.$/m);
+  });
+
+  it("pipes a handoff from an oam host, and inherits stdio from a Node host", async () => {
+    // Below the floor with nothing else to run on, the handoff goes to Node.
+    const fromOam = await runLauncher("0.9.0", isolated(), recordSpawnStdio);
+    assert.equal(fromOam.code, 0, JSON.stringify(fromOam));
+    assert.equal(fromOam.stdout.trim(), PKG_VERSION, "the piped Node child must still serve");
+    assert.match(fromOam.stderr, /^SPAWN_STDIO=\["pipe","pipe","pipe"\]$/m);
+
+    // Control: OAM_BIN pinned to this Node makes a Node host spawn it as oam.
+    const fromNode = await runLauncher(undefined, {}, recordSpawnStdio);
+    assert.match(fromNode.stderr, /^SPAWN_STDIO="inherit"$/m, JSON.stringify(fromNode));
   });
 });
