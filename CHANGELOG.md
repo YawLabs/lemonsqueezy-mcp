@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **The launcher always uses the newest oam, and the minimum is now the latest release, 0.15.2.** It used to take the FIRST oam binary it found and only then check its version, so a stale copy in an earlier location hid a current one: with oam 0.9.0 in `~/.oam/bin` and 0.15.2 on `PATH`, it ran 0.9.0. Every oam binary it can see is now asked for its version, and the newest at or above 0.15.2 wins; a tie keeps search order, so the installed copy wins over `PATH`.
+- **An oam host older than the floor no longer serves the server itself.** When a client ran `oam run bin/lemonsqueezy-mcp.mjs` with an old oam, the launcher spawned whatever discovery found, or, when that failed, served in-process on the old oam -- and below 0.9.0 oam passes `LEMONSQUEEZY_API_KEY_COMMAND`'s arguments through a shell. The spawn also inherited stdio, which an old oam does not honor, so the MCP handshake never answered (measured on a real oam 0.8.2 host, in aws-mcp's launcher). An old host now hands off with piped stdio to the newest usable oam, or to Node on `PATH`, or exits with an error when there is neither.
+- **A missing `OAM_BIN` is now reported, and a bad one no longer stops discovery.** A path that does not exist used to fall back to Node without a word; it is now named on stderr, as an oam below the floor and a binary that will not run already were. In all three cases discovery now carries on instead of dropping straight to Node.
+- **`LEMONSQUEEZY_MCP_RUNTIME=node` now always means Node.** Launched under `oam run`, it hands off to Node on `PATH` rather than staying on oam.
+- **A failed oam spawn under `auto` now says so** on stderr before falling back, instead of falling back silently.
+- Each `oam --version` probe is bounded at 5s, so a wedged binary on `PATH` cannot hang the launch.
+
+`LEMONSQUEEZY_MCP_SANDBOX=1` keeps its rules: it still spawns a fresh oam, now the newest one, even on a supported oam host, and still serves without `--permission` under `auto` when no usable oam can be started (in-process on Node or on an oam host at the floor, handed off to Node from one below it). The sandbox flags are verified to be accepted by oam 0.15.2 with a real MCP handshake.
+
+### Changed
+
+- Docs only: the README documents `LEMONSQUEEZY_MCP_RUNTIME` and `OAM_BIN`, and no longer says Node is the packaged default -- the published command has preferred oam since 0.12.0 -- or quotes the 196ms / 424ms cold-start figures `CLAUDE.md` already withdrew.
+
 ## [0.13.4] — 2026-09-12
 
 ### Added

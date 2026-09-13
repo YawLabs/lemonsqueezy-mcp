@@ -320,13 +320,23 @@ npm run check:containerfile  # CI runs this; non-zero exit means the two have dr
 
 ## Running on oam.js (optional)
 
-[oam.js](https://oamjs.org) runs this server unmodified. Verified against oam 0.9.0: full MCP handshake, all 64 tools, the `lemonsqueezy://audit-log` resource, working `fetch`, and guardrail rejections with error text identical to Node.
+[oam.js](https://oamjs.org) runs this server unmodified, and the launcher only ever uses the **latest oam release, currently 0.15.2**. Verified against oam 0.9.0: full MCP handshake, all 64 tools, the `lemonsqueezy://audit-log` resource, working `fetch`, and guardrail rejections with error text identical to Node. On oam 0.15.2 the MCP handshake and all 64 tools have been re-verified through the launcher, with and without the sandbox below.
 
-**oam 0.9.0 is the minimum.** Older releases ran `child_process.execFile` arguments through a shell, which was reachable here whenever `LEMONSQUEEZY_API_KEY_COMMAND` is configured -- that feature shells out to fetch the key, and its arguments were re-split by a shell. The launcher enforces the floor: given an older oam it falls back to Node and says so on stderr, and `LEMONSQUEEZY_MCP_RUNTIME=oam` turns that into a hard error.
+**oam 0.15.2 is the minimum.** The launcher picks the newest oam it can find at or above it, never serves on an older one, and falls back to Node when there is none (`LEMONSQUEEZY_MCP_RUNTIME=oam` turns that into a hard error). A floor matters here: releases before 0.9.0 ran `child_process.execFile` arguments through a shell, which was reachable whenever `LEMONSQUEEZY_API_KEY_COMMAND` is configured -- that feature shells out to fetch the key, and its arguments were re-split by a shell.
+
+The published `lemonsqueezy-mcp` command (`bin/lemonsqueezy-mcp.mjs`, which is what `npx` runs) chooses its runtime from these variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LEMONSQUEEZY_MCP_RUNTIME` | `auto` | `auto`: serve on the oam the launcher is already running under if that is 0.15.2 or newer (unless `LEMONSQUEEZY_MCP_SANDBOX=1`); otherwise run on the newest oam binary it can find at 0.15.2 or newer (see `OAM_BIN`); otherwise on Node. An oam host older than 0.15.2 never serves the server itself -- it hands off to the newest usable oam, or to Node on `PATH`, or exits with an error when there is neither. On stderr, an `OAM_BIN` that was passed over is always named. The other oam binaries passed over, and any `oam.cmd` / `oam.bat` shim, are named only when no usable oam is found -- an older copy skipped for a newer one is not mentioned. A chosen oam that fails to launch, and a handoff to Node from an oam host older than 0.15.2, are always reported; when such a host hands off to a newer oam instead, nothing is printed. `oam`: the same, but exit with an error instead of falling back. `node`: always Node -- in-process under `npx`, and handed off to Node on `PATH` when a client launches the command with `oam run`. Case-insensitive, and any other value behaves like `auto`. |
+| `OAM_BIN` | unset | Path to an oam binary to use in preference to discovery, when it is 0.15.2 or newer. If it does not exist, is older, or will not run, the launcher says so on stderr and carries on with discovery. Discovery looks in the installed location (`%LOCALAPPDATA%\oam\bin` then `~/.oam/bin` on Windows, `~/.oam/bin` elsewhere) and on `PATH`, asks every oam it finds for its version, and uses the newest; on a tie the installed copy wins. On Windows only `oam.exe` counts: an `oam.cmd` / `oam.bat` shim is never run, and is named on stderr only when no usable oam is found. Ignored under `LEMONSQUEEZY_MCP_RUNTIME=node`, and when already running on oam 0.15.2+ without the sandbox. |
+| `LEMONSQUEEZY_MCP_SANDBOX` | unset | `1` runs the server under `--permission`; see below. |
 
 ### Sandboxing (opt-in)
 
 Set `LEMONSQUEEZY_MCP_SANDBOX=1` to run under oam's `--permission` model: network restricted to `api.lemonsqueezy.com` (plus the host of `LEMONSQUEEZY_SINK_URL` when set), filesystem denied outright, and child-process denied unless `LEMONSQUEEZY_API_KEY_COMMAND` is configured.
+
+`--permission` is a process-level flag, so the launcher always starts a fresh oam for it -- even when a client already launches the command under oam 0.15.2+. That is a preference, not a guarantee: if no usable oam can be started, `LEMONSQUEEZY_MCP_RUNTIME=auto` still serves the server **without** `--permission`, and `LEMONSQUEEZY_MCP_RUNTIME=oam` exits with an error instead.
 
 It is opt-in rather than default because a wrong grant does not fail loudly. oam denies a non-granted environment variable by making it **absent** from `process.env` rather than throwing, so an under-granted `LEMONSQUEEZY_API_KEY` reads as "unauthenticated" rather than "denied". The env allow-list in the launcher is derived from what the shipped bundle actually reads -- if you add a new `process.env` lookup, extend that list with it.
 
@@ -344,7 +354,7 @@ It is opt-in rather than default because a wrong grant does not fail loudly. oam
 
 Note the `--` separator if you pass arguments to the server rather than to oam: `oam run dist/index.js -- version`.
 
-**Node stays the default, deliberately.** An MCP client cold-starts this server once per session, so startup is the cost that actually gets paid — and on the machine this was measured on, Node won: **196ms median against 424ms for `oam run`** (8 runs each, `version` subcommand, which exercises full boot plus tool registration). Making oam the default would mean either a launcher that probes for it on every start — a cost paid by everyone, including the majority who do not have oam installed — or making oam a hard requirement, which would break `npx @yawlabs/lemonsqueezy-mcp` for every user without it, since oam is not distributed on npm. Neither is worth it to reach a runtime that is slower here. Measure on your own hardware before concluding anything; if oam wins on yours, the config above is all you need.
+**The published command prefers oam; it does not require it.** oam is not distributed on npm, so `npx @yawlabs/lemonsqueezy-mcp` has to keep working without it, and it does: discovery is file-existence checks only, never a subprocess, and the fallback runs the server inside the Node process npm already started. With oam installed, though, the command boots Node, runs `--version` on every oam binary it found to pick the newest, and only then boots oam, so it is always slower than pointing your client at oam directly with the config above. `LEMONSQUEEZY_MCP_RUNTIME=node` skips oam entirely. An MCP client cold-starts this server once per session, so startup is the cost that actually gets paid -- and it has not been measured for this repo on a current oam. Measure on your own hardware before concluding anything.
 
 Two places oam *does* win for this repo, both opt-in and neither touching the npm package:
 
