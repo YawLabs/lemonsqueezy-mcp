@@ -59,11 +59,11 @@
     "prepublishOnly": "npm run build"
   },
   "overrides": {
-    "hono": "^4.12.14"
+    "hono": "^4.13.5"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^26.1.1",
     "esbuild": "^0.28.1",
     "postject": "^1.0.0-alpha.6",
