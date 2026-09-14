@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.14.2] — 2026-09-14
+
 ### Security
 
 - **The `@modelcontextprotocol/sdk` devDependency moves from `^1.29.0` to `^1.30.0`, and `npm audit` is clean again (it reported 6 findings, 2 high).** The SDK's transitive dependencies all move past their advisories: `fast-uri` 3.1.2 -> 3.1.7, `hono` 4.12.26 -> 4.13.7 (the existing `hono` override floor goes from `^4.12.14` to `^4.13.5`, the first patched version), `@hono/node-server` 1.19.13 -> 2.1.1, `ip-address` 10.2.0 -> 10.7.0, `qs` 6.15.2 -> 6.16.0 and `body-parser` 2.2.2 -> 2.3.0. Only `fast-uri` (via `ajv`) is bundled into the published `dist/index.js`, and the 0.14.1 bundle carried 3.1.2, inside the advised range; the others never reach the bundle, because the server uses only the SDK's stdio transport.
@@ -632,7 +634,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.2...HEAD
+[0.14.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.5...v0.14.0
 [0.13.5]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.4...v0.13.5

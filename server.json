@@ -9,12 +9,12 @@
     "id": "1205166730"
   },
   "websiteUrl": "https://yaw.sh/mcp-servers/lemonsqueezy-mcp/",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@yawlabs/lemonsqueezy-mcp",
-      "version": "0.14.1",
+      "version": "0.14.2",
       "transport": {
         "type": "stdio"
       }
