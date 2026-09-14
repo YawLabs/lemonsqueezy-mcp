@@ -1,6 +1,6 @@
 {
   "name": "@yawlabs/lemonsqueezy-mcp",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "mcpName": "io.github.YawLabs/lemonsqueezy-mcp",
   "description": "Lemon Squeezy MCP server: stores, orders, subscriptions, license keys, refunds, and webhooks.",
   "license": "MIT",

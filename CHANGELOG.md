@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-09-14
+
 ### Changed
 
 - npm and MCP Registry listing metadata: bugs URL, core keywords, and server.json title/repository/websiteUrl
@@ -626,7 +628,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.5...v0.14.0
 [0.13.5]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.3...v0.13.4
