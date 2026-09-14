@@ -5,6 +5,16 @@
 ### Changed
 
 - npm and MCP Registry listing metadata: bugs URL, core keywords, and server.json title/repository/websiteUrl
+- **`release.sh` writes a `## [x.y.z]` changelog entry for every release and takes the GitHub release notes from it.** `[Unreleased]` is promoted when it has content, with a fresh empty `[Unreleased]` heading left above the new section for the next change; when it is empty or absent, the section is generated from the commit subjects since the previous tag instead of being skipped. The Keep-a-Changelog link references at the bottom are moved along with it (`[Unreleased]` compares from the new tag and the version gets its own compare link), and the release fails when the entry is missing for any reason. Before this, a release with nothing under `[Unreleased]` got no entry at all -- 0.14.0 below is backfilled -- and its GitHub release page showed raw commit subjects.
+
+## [0.14.0] — 2026-09-13
+
+No runtime changes: nothing under `src/` changed and no dependency moved. This release is release tooling and docs. This entry was backfilled -- `[Unreleased]` was empty when 0.14.0 was cut, so its GitHub release notes fell back to bare commit subjects.
+
+### Changed
+
+- **`release.sh` waits for npm to serve the new version before publishing to the MCP Registry.** `npm publish` returns as soon as the registry accepts the tarball, but the version is not yet readable from npm's CDN-backed read path, and the MCP Registry validates a publish by reading it -- so a registry publish run straight after `npm publish` could fail with `version 'X' was not found (status: 404)` and the release needed a second invocation (ssh-mcp v0.15.3 failed that way, and aws-mcp did on three consecutive releases). Step 7 now polls the exact URL the registry's npm validator builds, `https://registry.npmjs.org/@yawlabs%2Flemonsqueezy-mcp/<version>` with the scope slash escaped the way Go's `url.PathEscape` does, using `curl` rather than `npm view`, whose 5-minute metadata cache can outlast the condition. A timeout warns rather than fails, so `mcp-publisher` still reports its own precise error; `SKIP_NPM_WAIT=1` bypasses the wait, `NPM_WAIT_TIMEOUT_S` retunes the 300s default, and a missing `curl` skips it with a warning (#50).
+- **README:** the X follow badge moved from the top of the page to the bottom, so the description leads on npm and GitHub (#51).
 
 ## [0.13.5] — 2026-09-13
 
@@ -616,7 +626,10 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.3...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.5...v0.14.0
+[0.13.5]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.4...v0.13.5
+[0.13.4]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.3...v0.13.4
 [0.13.3]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.0...v0.13.1
