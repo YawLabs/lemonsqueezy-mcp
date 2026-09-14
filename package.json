@@ -9,6 +9,9 @@
     "type": "git",
     "url": "git+https://github.com/YawLabs/lemonsqueezy-mcp.git"
   },
+  "bugs": {
+    "url": "https://github.com/YawLabs/lemonsqueezy-mcp/issues"
+  },
   "keywords": [
     "lemonsqueezy",
     "lemon-squeezy",
@@ -27,7 +30,9 @@
     "licensing",
     "checkout",
     "webhooks",
-    "billing"
+    "billing",
+    "cursor",
+    "ai-agents"
   ],
   "type": "module",
   "main": "dist/index.js",
