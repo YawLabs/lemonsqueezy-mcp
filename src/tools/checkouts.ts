@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiPost, getHandler, listHandler, lsIdSchema } from "../api.js";
+import { apiPost, getHandler, listHandler, lsIdSchema, lsUuidSchema } from "../api.js";
 
 export const checkoutTools = [
   {
@@ -14,7 +14,9 @@ export const checkoutTools = [
       openWorldHint: true,
     },
     inputSchema: z.object({
-      checkoutId: lsIdSchema.describe("The checkout ID"),
+      checkoutId: lsUuidSchema.describe(
+        "The checkout ID (a UUID, as returned by ls_list_checkouts / ls_create_checkout)",
+      ),
       include: z
         .string()
         .max(10000)

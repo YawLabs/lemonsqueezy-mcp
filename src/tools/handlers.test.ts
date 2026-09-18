@@ -876,6 +876,20 @@ describe("License key handlers", () => {
     assert.equal(body.data.attributes.expires_at, null);
   });
 
+  it("ls_update_license_key forwards null activationLimit (unlimited) as activation_limit: null", async () => {
+    // Upstream documents null as the way to make a key's activations
+    // unlimited. The schema must accept it and the handler must send it
+    // through -- not drop it as "unset", which would turn the call into an
+    // empty PATCH.
+    const tool = findTool(licenseKeyTools, "ls_update_license_key");
+    assert.equal(inputSchema(tool).safeParse({ licenseKeyId: "900", activationLimit: null }).success, true);
+    await tool.handler({ licenseKeyId: "900", activationLimit: null });
+    assert.equal(lastRequest!.method, "PATCH");
+    const body = lastRequest!.body as AnyBody;
+    assert.ok("activation_limit" in body.data.attributes, "activation_limit must be present, not omitted");
+    assert.equal(body.data.attributes.activation_limit, null);
+  });
+
   it("ls_update_license_key rejects an update with no fields to change", async () => {
     const tool = findTool(licenseKeyTools, "ls_update_license_key");
     await assert.rejects(
@@ -943,8 +957,21 @@ describe("License key instance handlers", () => {
 describe("Checkout handlers", () => {
   it("ls_get_checkout calls GET /checkouts/:id", async () => {
     const tool = findTool(checkoutTools, "ls_get_checkout");
-    await tool.handler({ checkoutId: "1100" });
-    assert.ok(lastRequest!.url.startsWith(`${BASE}/checkouts/1100`));
+    await tool.handler({ checkoutId: "5e8b546c-c561-4a2c-a586-40c18bb2a195" });
+    assert.ok(lastRequest!.url.startsWith(`${BASE}/checkouts/5e8b546c-c561-4a2c-a586-40c18bb2a195`));
+  });
+
+  it("ls_get_checkout accepts a checkout's UUID id and rejects an integer id", () => {
+    // Checkout ids are UUIDs upstream (every other resource uses integer
+    // strings). Validating with lsIdSchema made this tool reject every real
+    // checkout; a live read-only probe caught it, the mocked suite could not.
+    const tool = checkoutTools[0];
+    assert.equal(tool.name, "ls_get_checkout");
+    const shape = tool.inputSchema.shape;
+    assert.equal(shape.checkoutId.safeParse("5e8b546c-c561-4a2c-a586-40c18bb2a195").success, true);
+    assert.equal(shape.checkoutId.safeParse("5E8B546C-C561-4A2C-A586-40C18BB2A195").success, true);
+    assert.equal(shape.checkoutId.safeParse("1100").success, false);
+    assert.equal(shape.checkoutId.safeParse("../stores/1").success, false);
   });
 
   it("ls_list_checkouts filters by store and variant", async () => {
@@ -1365,6 +1392,66 @@ describe("License API error handling", () => {
     assert.equal(result.ok, false);
     assert.equal(result.status, 0);
     assert.ok(result.error.includes("timed out"));
+  });
+
+  it("a JSON error body with no message is surfaced redacted, never with the license key", async () => {
+    // With no `error` field and no `errors[]`, extractErrorMessage has nothing
+    // to return, so the whole body becomes the error text -- which is logged
+    // at LEMONSQUEEZY_LOG=error for any tool and handed back to the agent. A
+    // License API body nests the caller's key under license_key.key, so the
+    // fallback must go through redactSecrets rather than out raw.
+    const KEY = "38b1460a-5104-4067-a91d-77b872934d51";
+    const savedLog = process.env.LEMONSQUEEZY_LOG;
+    process.env.LEMONSQUEEZY_LOG = "error";
+    const lines: string[] = [];
+    // biome-ignore lint/suspicious/noExplicitAny: minimal stderr stub
+    const originalWrite = process.stderr.write.bind(process.stderr) as any;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return true;
+      // biome-ignore lint/suspicious/noExplicitAny: matches the stubbed type
+    }) as any;
+    let result: AnyBody;
+    try {
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ valid: false, license_key: { id: 1, key: KEY, status: "disabled" } }), {
+          status: 400,
+        })) as typeof fetch;
+      const tool = findTool(licenseTools, "ls_validate_license");
+      result = (await tool.handler({ licenseKey: KEY })) as AnyBody;
+    } finally {
+      process.stderr.write = originalWrite;
+      if (savedLog === undefined) delete process.env.LEMONSQUEEZY_LOG;
+      else process.env.LEMONSQUEEZY_LOG = savedLog;
+    }
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 400);
+    assert.ok(!result.error.includes(KEY), `license key leaked into the error text: ${result.error}`);
+    // Still the body, just redacted -- the non-secret fields survive.
+    assert.deepEqual(JSON.parse(result.error), { valid: false, license_key: "[REDACTED]" });
+    const httpLines = lines.filter((l) => l.includes('"http_call"'));
+    assert.equal(httpLines.length, 1, "the failed call must still be logged at LOG=error");
+    assert.ok(!httpLines[0]!.includes(KEY), "license key leaked into the http_call log line");
+  });
+
+  it("a non-string error / detail / title is not taken as the message, so it is redacted too", async () => {
+    // extractErrorMessage reads through a type cast. If it accepted whatever
+    // sat in `error`, an object nesting the key would skip the redactor and
+    // reach the client, the http_call line and the audit entry whole.
+    const KEY = "38b1460a-5104-4067-a91d-77b872934d51";
+    const bodies = [
+      { deactivated: false, error: { license_key: { key: KEY } } },
+      { errors: [{ detail: { license_key: KEY } }] },
+      { errors: [{ title: { license_key: KEY } }] },
+    ];
+    for (const body of bodies) {
+      globalThis.fetch = (async () => new Response(JSON.stringify(body), { status: 400 })) as typeof fetch;
+      const tool = findTool(licenseTools, "ls_deactivate_license");
+      const result = (await tool.handler({ licenseKey: KEY, instanceId: "1" })) as AnyBody;
+      assert.equal(result.ok, false);
+      assert.equal(typeof result.error, "string", `error must be a string for ${JSON.stringify(body)}`);
+      assert.ok(!result.error.includes(KEY), `license key leaked into the error text: ${result.error}`);
+    }
   });
 
   it("falls back to raw text for non-JSON license error", async () => {

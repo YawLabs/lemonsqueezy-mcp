@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { computeEffectivePrice } from "../effective-price.js";
-import { AUTHORITY_CLASSES } from "../guardrails.js";
+import { AUTHORITY_CLASSES, isDestructiveCall } from "../guardrails.js";
 import { affiliateTools } from "./affiliates.js";
 import { checkoutTools } from "./checkouts.js";
 import { customerTools } from "./customers.js";
@@ -108,6 +108,213 @@ describe("Tool definitions", () => {
   }
 });
 
+// The public surface SEMVER.md promises is pinned here, list by list, so a
+// change to any of it fails the build instead of shipping unnoticed. Every
+// list below is part of the 1.0 contract: an MCP client reads the annotations
+// verbatim (index.ts passes them straight to server.tool), and an operator's
+// LEMONSQUEEZY_DISABLE_CLASSES / RATE_LIMIT_PER_CLASS / DESTRUCTIVE_RATE_LIMIT
+// settings mean whatever these lists say they mean.
+describe("Surface lock (1.0 -- SEMVER.md)", () => {
+  const SURFACE_MSG =
+    "This list is part of the 1.0 public surface. Changing it is a SEMVER decision, not a test fixup: " +
+    "classify the change per SEMVER.md, call it out in CHANGELOG.md, and update README.md in the same change " +
+    "(the LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT row, the authority-class table, and the tool catalogue).";
+
+  const names = (pred: (t: (typeof allTools)[number]) => boolean) =>
+    allTools
+      .filter(pred)
+      .map((t) => t.name)
+      .sort();
+  const hasPredicate = (t: (typeof allTools)[number]) =>
+    typeof (t as { isDestructive?: unknown }).isDestructive === "function";
+
+  // Static destructiveHint:true -- what MCP clients see. The 9 tools without
+  // a predicate (ALWAYS_DESTRUCTIVE) are destructive on every call; the 4 with
+  // one (PREDICATE_DESTRUCTIVE) only for some inputs.
+  const DESTRUCTIVE_HINT_TRUE = [
+    "ls_archive_customer",
+    "ls_cancel_subscription",
+    "ls_create_usage_record",
+    "ls_deactivate_license",
+    "ls_delete_discount",
+    "ls_delete_webhook",
+    "ls_refund_order",
+    "ls_refund_subscription_invoice",
+    "ls_update_customer",
+    "ls_update_license_key",
+    "ls_update_subscription",
+    "ls_update_subscription_item",
+    "ls_update_webhook",
+  ];
+
+  // Static destructiveHint:true and no predicate: isDestructiveCall is true
+  // for every input, so every call counts against
+  // LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT and lands in the audit log.
+  const ALWAYS_DESTRUCTIVE = [
+    "ls_archive_customer",
+    "ls_cancel_subscription",
+    "ls_create_usage_record",
+    "ls_deactivate_license",
+    "ls_delete_discount",
+    "ls_delete_webhook",
+    "ls_refund_order",
+    "ls_refund_subscription_invoice",
+    "ls_update_subscription_item",
+  ];
+
+  // Tools whose server-side verdict (isDestructiveCall) depends on the input.
+  // Which inputs count is pinned by the per-tool predicate blocks in this file.
+  const PREDICATE_DESTRUCTIVE = [
+    "ls_update_customer",
+    "ls_update_license_key",
+    "ls_update_subscription",
+    "ls_update_webhook",
+  ];
+
+  const NOT_READ_ONLY = [
+    "ls_activate_license",
+    "ls_archive_customer",
+    "ls_cancel_subscription",
+    "ls_create_checkout",
+    "ls_create_customer",
+    "ls_create_discount",
+    "ls_create_usage_record",
+    "ls_create_webhook",
+    "ls_deactivate_license",
+    "ls_delete_discount",
+    "ls_delete_webhook",
+    "ls_generate_order_invoice",
+    "ls_generate_subscription_invoice",
+    "ls_refund_order",
+    "ls_refund_subscription_invoice",
+    "ls_sink_event_mark_processed",
+    "ls_update_customer",
+    "ls_update_license_key",
+    "ls_update_subscription",
+    "ls_update_subscription_item",
+    "ls_update_webhook",
+  ];
+
+  // Every tool's authority class. Moving a tool between classes changes what
+  // an operator's class gates and per-class budgets cover, so it is pinned in
+  // full rather than spot-checked.
+  const AUTHORITY_CLASS_BY_TOOL: Record<string, string> = {
+    ls_activate_license: "key",
+    ls_archive_customer: "pii",
+    ls_cancel_subscription: "recurring",
+    ls_create_checkout: "mutate",
+    ls_create_customer: "pii",
+    ls_create_discount: "mutate",
+    ls_create_usage_record: "recurring",
+    ls_create_webhook: "webhook",
+    ls_deactivate_license: "key",
+    ls_delete_discount: "mutate",
+    ls_delete_webhook: "webhook",
+    ls_generate_order_invoice: "mutate",
+    ls_generate_subscription_invoice: "mutate",
+    ls_get_affiliate: "read",
+    ls_get_checkout: "read",
+    ls_get_customer: "pii",
+    ls_get_discount: "read",
+    ls_get_discount_redemption: "read",
+    ls_get_file: "read",
+    ls_get_license_key: "read",
+    ls_get_license_key_instance: "read",
+    ls_get_order: "read",
+    ls_get_order_item: "read",
+    ls_get_price: "read",
+    ls_get_product: "read",
+    ls_get_store: "read",
+    ls_get_subscription: "read",
+    ls_get_subscription_invoice: "read",
+    ls_get_subscription_item: "read",
+    ls_get_subscription_item_usage: "read",
+    ls_get_usage_record: "read",
+    ls_get_user: "read",
+    ls_get_variant: "read",
+    ls_get_webhook: "read",
+    ls_list_affiliates: "read",
+    ls_list_checkouts: "read",
+    ls_list_customers: "pii",
+    ls_list_discount_redemptions: "read",
+    ls_list_discounts: "read",
+    ls_list_files: "read",
+    ls_list_license_key_instances: "read",
+    ls_list_license_keys: "read",
+    ls_list_order_items: "read",
+    ls_list_orders: "read",
+    ls_list_prices: "read",
+    ls_list_products: "read",
+    ls_list_stores: "read",
+    ls_list_subscription_invoices: "read",
+    ls_list_subscription_items: "read",
+    ls_list_subscriptions: "read",
+    ls_list_usage_records: "read",
+    ls_list_variants: "read",
+    ls_list_webhooks: "read",
+    ls_refund_order: "money",
+    ls_refund_subscription_invoice: "money",
+    ls_sink_event_mark_processed: "mutate",
+    ls_sink_events_list: "read",
+    ls_sink_stats: "read",
+    ls_update_customer: "pii",
+    ls_update_license_key: "key",
+    ls_update_subscription: "recurring",
+    ls_update_subscription_item: "recurring",
+    ls_update_webhook: "webhook",
+    ls_validate_license: "read",
+  };
+
+  it("the destructiveHint:true set is exactly the locked list", () => {
+    assert.deepEqual(
+      names((t) => t.annotations.destructiveHint === true),
+      DESTRUCTIVE_HINT_TRUE,
+      SURFACE_MSG,
+    );
+  });
+
+  it("the isDestructive-predicate set is exactly the locked list", () => {
+    assert.deepEqual(names(hasPredicate), PREDICATE_DESTRUCTIVE, SURFACE_MSG);
+  });
+
+  it("the readOnlyHint:false set is exactly the locked list", () => {
+    assert.deepEqual(
+      names((t) => t.annotations.readOnlyHint === false),
+      NOT_READ_ONLY,
+      SURFACE_MSG,
+    );
+  });
+
+  it("the always-destructive set (static true, no predicate) is exactly the locked list", () => {
+    assert.deepEqual(
+      names((t) => t.annotations.destructiveHint === true && !hasPredicate(t)),
+      ALWAYS_DESTRUCTIVE,
+      SURFACE_MSG,
+    );
+    // The three lists must agree with each other: the 13 static-true tools are
+    // exactly the 9 always-destructive ones plus the 4 predicate ones.
+    assert.deepEqual([...ALWAYS_DESTRUCTIVE, ...PREDICATE_DESTRUCTIVE].sort(), DESTRUCTIVE_HINT_TRUE);
+  });
+
+  it("every static-destructive tool without a predicate is destructive on every call", () => {
+    // Destructive coverage is defined by isDestructiveCall(tool, input), not
+    // by the annotation alone. For the 9 predicate-less tools the verdict
+    // must not depend on input -- an empty input is enough to show it.
+    const unconditional = allTools.filter((t) => ALWAYS_DESTRUCTIVE.includes(t.name));
+    assert.equal(unconditional.length, ALWAYS_DESTRUCTIVE.length, SURFACE_MSG);
+    for (const tool of unconditional) {
+      const asCheckable = tool as unknown as Parameters<typeof isDestructiveCall>[0];
+      assert.equal(isDestructiveCall(asCheckable, {}), true, `${tool.name}: ${SURFACE_MSG}`);
+    }
+  });
+
+  it("every tool's authority class matches the locked map", () => {
+    assert.equal(Object.keys(AUTHORITY_CLASS_BY_TOOL).length, 64, `the map must cover all 64 tools. ${SURFACE_MSG}`);
+    const actual = Object.fromEntries(allTools.map((t) => [t.name, (t as { authorityClass: string }).authorityClass]));
+    assert.deepEqual(actual, AUTHORITY_CLASS_BY_TOOL, SURFACE_MSG);
+  });
+});
+
 describe("ls_update_license_key predicate", () => {
   const tool = licenseKeyTools.find((t) => t.name === "ls_update_license_key") as
     | { isDestructive?: (input: Record<string, unknown>) => boolean }
@@ -130,8 +337,21 @@ describe("ls_update_license_key predicate", () => {
     assert.equal(tool?.isDestructive?.({ activationLimit: 100 }), true);
   });
 
-  it("treats expiresAt-only changes as non-destructive", () => {
-    assert.equal(tool?.isDestructive?.({ expiresAt: "2026-01-01" }), false);
+  it("treats activationLimit: null (unlimited) as destructive", () => {
+    // Any limit change counts: the predicate cannot tell a raise from a cut
+    // without the current value, and null is a change like any other.
+    assert.equal(tool?.isDestructive?.({ activationLimit: null }), true);
+  });
+
+  it("treats an expiresAt change as destructive, date or null", () => {
+    // An earlier expiry narrows access; the predicate cannot tell earlier
+    // from later without fetching the key, so every expiry change counts.
+    assert.equal(tool?.isDestructive?.({ expiresAt: "2026-01-01" }), true);
+    assert.equal(tool?.isDestructive?.({ expiresAt: null }), true);
+  });
+
+  it("treats disabled: false (re-enabling) as non-destructive", () => {
+    assert.equal(tool?.isDestructive?.({ disabled: false }), false);
   });
 
   it("treats an empty input as non-destructive", () => {
@@ -167,13 +387,13 @@ describe("ls_update_webhook predicate", () => {
 });
 
 describe("Conditional-destructive disclosure", () => {
-  // A tool with an isDestructive predicate carries destructiveHint:false,
-  // because the verdict is per-call and the MCP annotation is static. That is
-  // correct, but it means a client deciding whether to prompt sees "not
-  // destructive" for a call that the server will rate-limit and audit. The
-  // description is the only channel left to warn the caller, so it is
-  // load-bearing rather than decorative. ls_update_subscription shipped
-  // without it while its three siblings had it.
+  // A tool with an isDestructive predicate decides per call whether the
+  // server rate-limits and audits it, but an MCP annotation is static, so a
+  // client sees destructiveHint:true on every call to it, benign or not. The
+  // description is the only channel that tells the caller WHICH inputs the
+  // server treats as destructive, so it is load-bearing rather than
+  // decorative. ls_update_subscription shipped without it while its three
+  // siblings had it.
   it("every tool with an isDestructive predicate says so in its description", () => {
     const predicateTools = allTools.filter(
       (t) => typeof (t as { isDestructive?: unknown }).isDestructive === "function",
@@ -185,22 +405,46 @@ describe("Conditional-destructive disclosure", () => {
         tool.description,
         /destructive|audited|rate-limited/i,
         `Tool ${tool.name} decides destructiveness per call but its description never warns the caller. ` +
-          "Its static destructiveHint is false, so an MCP client will not prompt -- the description is the only signal left.",
+          "Its static destructiveHint is the same on every call, so the description is the only per-input signal.",
       );
     }
   });
 
-  it("a predicate tool does not also claim destructiveHint:true", () => {
-    // Both together would be contradictory: the static hint would force a
-    // prompt on every call including the benign ones, making the predicate
-    // pointless and training users to click through.
+  it("a predicate tool also declares static destructiveHint:true", () => {
+    // Inverted for 1.0 -- this used to forbid true. MCP defines
+    // destructiveHint:false as "performs only additive updates", and every
+    // predicate tool is a PATCH that can overwrite, revoke or re-bill, so
+    // false misstates it to the client. True costs nothing server-side:
+    // isDestructiveCall never reads the static hint when a predicate exists
+    // (asserted in the next test), so benign calls still skip the destructive
+    // limiter and the audit log.
     for (const tool of allTools) {
       if (typeof (tool as { isDestructive?: unknown }).isDestructive !== "function") continue;
-      assert.notEqual(
+      assert.equal(
         tool.annotations.destructiveHint,
         true,
-        `Tool ${tool.name} has both an isDestructive predicate and destructiveHint:true.`,
+        `Tool ${tool.name} has an isDestructive predicate but destructiveHint:${String(tool.annotations.destructiveHint)}. ` +
+          "Predicate tools must declare true; changing that is a SEMVER decision (see SEMVER.md), not a test fixup.",
       );
+    }
+  });
+
+  it("the predicate, not the static true, decides the server-side verdict", () => {
+    // One benign and one destructive input per predicate tool, run through
+    // the same isDestructiveCall the wrapper uses. If the static hint ever
+    // leaked into the verdict, every benign call below would come back true
+    // and land in the destructive limiter and the audit log.
+    const cases: { name: string; benign: Record<string, unknown>; destructive: Record<string, unknown> }[] = [
+      { name: "ls_update_customer", benign: { name: "New Name" }, destructive: { status: "archived" } },
+      { name: "ls_update_license_key", benign: { disabled: false }, destructive: { disabled: true } },
+      { name: "ls_update_subscription", benign: { pause: "resume" }, destructive: { pause: "void" } },
+      { name: "ls_update_webhook", benign: { url: "https://example.com/hook" }, destructive: { secret: "rotated" } },
+    ];
+    for (const { name, benign, destructive } of cases) {
+      const tool = allTools.find((t) => t.name === name) as unknown as Parameters<typeof isDestructiveCall>[0];
+      assert.ok(tool, `${name} not found`);
+      assert.equal(isDestructiveCall(tool, benign), false, `${name}: benign input must stay non-destructive`);
+      assert.equal(isDestructiveCall(tool, destructive), true, `${name}: destructive input must count`);
     }
   });
 });
@@ -243,10 +487,12 @@ describe("ls_update_customer predicate", () => {
 });
 
 describe("ls_update_subscription predicate", () => {
-  // subscriptions.ts:94 -- pausing or switching plan is customer-impacting
-  // and must be audited/rate-limited; resuming and the billing-neutral edits
-  // must not be. Getting this backwards either hides recurring-revenue
-  // changes from the audit log or floods it with un-pauses.
+  // subscriptions.ts isDestructive -- every input that changes what the
+  // customer pays or when (pause, plan switch, billing anchor, immediate
+  // invoice, trial end) must be audited/rate-limited; resuming, un-cancelling
+  // and the proration toggles must not be. Getting this backwards either
+  // hides recurring-revenue changes from the audit log or floods it with
+  // un-pauses.
   const tool = subscriptionTools.find((t) => t.name === "ls_update_subscription") as
     | { isDestructive?: (input: Record<string, unknown>) => boolean }
     | undefined;
@@ -271,11 +517,29 @@ describe("ls_update_subscription predicate", () => {
     assert.equal(tool?.isDestructive?.({ subscriptionId: "1", variantId: "42" }), true);
   });
 
-  it("treats the billing-neutral edits as non-destructive", () => {
+  it("treats a billing-anchor change as destructive", () => {
+    // Upstream issues a paid, prorated trial up to the new anchor date.
+    assert.equal(tool?.isDestructive?.({ subscriptionId: "1", billingAnchor: 15 }), true);
+  });
+
+  it("treats invoiceImmediately: true as destructive, and false as not", () => {
+    // true charges the update now (prorated invoice, payment attempted);
+    // false is the default deferred proration.
+    assert.equal(tool?.isDestructive?.({ subscriptionId: "1", invoiceImmediately: true }), true);
+    assert.equal(tool?.isDestructive?.({ subscriptionId: "1", invoiceImmediately: false }), false);
+  });
+
+  it("treats a trialEndsAt change as destructive, date or null", () => {
+    assert.equal(tool?.isDestructive?.({ subscriptionId: "1", trialEndsAt: "2026-12-01T00:00:00Z" }), true);
+    assert.equal(tool?.isDestructive?.({ subscriptionId: "1", trialEndsAt: null }), true);
+  });
+
+  it("treats cancelled: false and disableProrations as non-destructive", () => {
+    // cancelled:false is the pair of pause:"resume" -- both reverse a
+    // destructive action -- so the two must stay on the same side of the
+    // predicate.
     assert.equal(tool?.isDestructive?.({ subscriptionId: "1", cancelled: false }), false);
-    assert.equal(tool?.isDestructive?.({ subscriptionId: "1", billingAnchor: 15 }), false);
-    assert.equal(tool?.isDestructive?.({ subscriptionId: "1", trialEndsAt: null }), false);
-    assert.equal(tool?.isDestructive?.({ subscriptionId: "1", invoiceImmediately: true }), false);
+    assert.equal(tool?.isDestructive?.({ subscriptionId: "1", pause: "resume" }), false);
     assert.equal(tool?.isDestructive?.({ subscriptionId: "1", disableProrations: true }), false);
   });
 

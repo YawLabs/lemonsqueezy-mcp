@@ -1,19 +1,37 @@
 /**
  * Defense-in-depth redactor for audit-logged tool inputs.
  *
- * Today no destructive tool accepts a secret-typed input (webhook secret
- * tools are non-destructive). If `ls_create_webhook` or `ls_update_webhook`
- * is ever flipped to destructiveHint:true, the webhook signing secret would
- * land in the audit log unredacted. This redactor future-proofs the surface:
+ * Every destructive call's inputs pass through here before they reach any of
+ * the three audit sinks: the stderr `tool_call` line, the in-memory audit
+ * ring, and the `lemonsqueezy://audit-log` MCP resource that serializes it.
+ * Secret-bearing inputs do reach this path: `ls_update_webhook` is
+ * destructive when it sets `secret`, and `ls_deactivate_license` is
+ * destructive on every call and carries the raw `licenseKey`. `api.ts` also
+ * runs an upstream error body through it when the body carries no message it
+ * recognizes, before that body is logged or returned as the error text.
  *
- * Two redaction strategies, both applied:
+ * Three redaction strategies, all applied:
  *
  *   1. Key-name match. Any object key whose name matches SECRET_KEY_RE has
  *      its value replaced with "[REDACTED]". The regex is anchored so
- *      business identifiers (licenseKey, instanceId, storeId, orderId,
- *      webhookId) are preserved -- `licenseKey` does NOT match `^key$`.
+ *      business identifiers (instanceId, storeId, orderId, webhookId,
+ *      licenseKeyId) are preserved, and so are keys that merely contain a
+ *      secret word (`secretQuestion`, `tokenizer`).
  *
- *   2. Value-shape match. Any string value that looks like a LemonSqueezy
+ *   2. License-key mask. A key whose name matches LICENSE_KEY_RE (licenseKey,
+ *      license_key, license-key, any case) is masked by `maskLicenseKey`: a
+ *      string of 16 or more characters becomes "[REDACTED:last4=XXXX]", and
+ *      anything else -- a shorter string, a number, an object -- becomes
+ *      "[REDACTED]". A license key authenticates the License API on its own
+ *      (see tools/licenses.ts), so it is a bearer credential, not an
+ *      identifier. It is masked rather than blanked so an auditor can still
+ *      tell which key an entry refers to. The regex is anchored, so the
+ *      opaque management-API IDs `licenseKeyId` / `license_key_id` /
+ *      `licenseKeyInstanceId` pass through unchanged. Masking goes by key
+ *      name only: a license-key value under some other key name is not
+ *      caught here.
+ *
+ *   3. Value-shape match. Any string value that looks like a LemonSqueezy
  *      / generic JWT bearer token (three dot-separated base64url segments
  *      with a `eyJ` JOSE header prefix) is redacted regardless of the key
  *      it appears under. Closes the gap where a tool with a free-form
@@ -31,8 +49,28 @@ const SECRET_KEY_RE =
 // length floor (>= 20) keeps a stray `eyJ.x.y` from being flagged.
 const JWT_VALUE_RE = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}$/;
 
+// Anchored: `licenseKeyId`, `license_key_id` and `licenseKeyInstanceId` are
+// opaque management-API IDs and must NOT match.
+const LICENSE_KEY_RE = /^license[_-]?key$/i;
+
+// Below this length the last four characters are too large a share of the
+// value to print, so a short value is blanked outright. A UUID-shaped key
+// (36 characters) prints 4 of them.
+const MIN_LICENSE_KEY_MASK_LENGTH = 16;
+
 const REDACTED = "[REDACTED]";
 const CIRCULAR = "[CIRCULAR]";
+
+/**
+ * The value written in place of a license key (strategy 2 in the header).
+ * Fails closed: only a string long enough to fingerprint keeps its last four
+ * characters; every other value is fully redacted. Exported so tests derive
+ * the expected string from the implementation instead of restating it.
+ */
+export function maskLicenseKey(value: unknown): string {
+  if (typeof value !== "string" || value.length < MIN_LICENSE_KEY_MASK_LENGTH) return REDACTED;
+  return `[REDACTED:last4=${value.slice(-4)}]`;
+}
 
 // Hard depth cap as a belt-and-braces complement to the ancestor-path cycle
 // guard. A pathological input nested 33+ levels deep stops descending; the
@@ -96,7 +134,11 @@ function redactInner(
   } else {
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = SECRET_KEY_RE.test(key) ? REDACTED : redactInner(val, ancestors, memo, depth + 1);
+      out[key] = SECRET_KEY_RE.test(key)
+        ? REDACTED
+        : LICENSE_KEY_RE.test(key)
+          ? maskLicenseKey(val)
+          : redactInner(val, ancestors, memo, depth + 1);
     }
     result = out;
   }
@@ -107,7 +149,8 @@ function redactInner(
 
 /**
  * Returns a deep copy of `input` with the values of any secret-named keys
- * replaced by "[REDACTED]". Does not mutate the input. Circular references
+ * replaced by "[REDACTED]" and any license-key-named keys masked by
+ * `maskLicenseKey`. Does not mutate the input. Circular references
  * are replaced with "[CIRCULAR]" at the back-edge -- the call always
  * terminates.
  *

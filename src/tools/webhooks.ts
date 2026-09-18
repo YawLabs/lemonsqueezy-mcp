@@ -100,14 +100,22 @@ export const webhookTools = [
     annotations: {
       title: "Update webhook",
       readOnlyHint: false,
-      destructiveHint: false,
+      // Static true: MCP defines false as "only additive updates", and every
+      // field here overwrites the existing value. The predicate below still
+      // decides per call whether the server-side destructive limiter and
+      // audit log engage (isDestructiveCall in guardrails.ts never reads this
+      // hint when a predicate exists).
+      destructiveHint: true,
       idempotentHint: true,
       openWorldHint: true,
     },
-    // Rotating the signing secret silently breaks signature verification on
-    // every receiver until they redeploy with the new value. URL and events
-    // changes are observable on the next event but don't break anything in
-    // flight, so they stay on the regular path.
+    // Rotating the signing secret breaks signature verification on every
+    // receiver until they redeploy with the new value, and the agent cannot
+    // undo it: the secret is returned only once (see ls_create_webhook), so
+    // the old value cannot be read back and restored. URL and events
+    // changes can be undone -- ls_get_webhook returns the current URL and
+    // events, and a PATCH puts them back -- so they stay on the regular path.
+    // The `secret` input reaches the audit log redacted by key name.
     isDestructive: (input: Record<string, unknown>) => input.secret !== undefined,
     inputSchema: z.object({
       webhookId: lsIdSchema.describe("The webhook ID to update"),

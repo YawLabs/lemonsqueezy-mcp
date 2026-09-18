@@ -104,7 +104,12 @@ export const customerTools = [
     annotations: {
       title: "Update customer",
       readOnlyHint: false,
-      destructiveHint: false,
+      // Static true: MCP defines false as "only additive updates", and every
+      // field here overwrites the existing value (status can archive). The
+      // predicate below still decides per call whether the server-side
+      // destructive limiter and audit log engage (isDestructiveCall in
+      // guardrails.ts never reads this hint when a predicate exists).
+      destructiveHint: true,
       idempotentHint: true,
       openWorldHint: true,
     },

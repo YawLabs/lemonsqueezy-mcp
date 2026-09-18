@@ -28,6 +28,10 @@
  *     fetch, so a response-side annotation the handler DERIVED is asserted on
  *     the serialized text the client actually receives -- every other test
  *     here uses a synthetic handler that echoes a literal back
+ *   - The REAL ls_deactivate_license (issue #40): destructive on every call,
+ *     blocked by LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT=0 before any HTTP call,
+ *     and its raw license key never reaches stderr, the audit ring, or the
+ *     audit-log resource on any outcome
  */
 
 import assert from "node:assert/strict";
@@ -35,7 +39,9 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { z } from "zod";
 import { _resetAuditBufferForTest, readAuditEntries } from "./audit-buffer.js";
 import { _resetGuardrailsForTest, GuardrailError, ToolInputError } from "./guardrails.js";
+import { maskLicenseKey } from "./redact.js";
 import { _resetApiKeyCacheForTest } from "./secret.js";
+import { licenseTools } from "./tools/licenses.js";
 import { priceTools } from "./tools/prices.js";
 import { createToolHandler, type McpToolResult, type RegisterableTool, readAuditLogResource } from "./wrapper.js";
 
@@ -686,19 +692,20 @@ describe("createToolHandler -- registration wrapper", () => {
     });
 
     it("predicate-destructive call (ls_update_license_key shape) lands in the audit ring", async () => {
-      // Mirrors ls_update_license_key: destructiveHint:false on the
-      // annotation, predicate flips destructive when activationLimit
-      // changes. The wrapper must consult the predicate, not the static
-      // annotation, and route the call to the audit ring.
+      // Mirrors ls_update_license_key as shipped: static destructiveHint:true
+      // (what MCP clients see) plus a predicate that decides per call. The
+      // wrapper must consult the predicate, not the static annotation: the
+      // benign call stays out of the audit ring even though the hint is true.
       const tool = makeTool({
         name: "ls_update_license_key",
         authorityClass: "key",
-        annotations: { destructiveHint: false },
-        isDestructive: (input) => input.activationLimit !== undefined || input.disabled === true,
+        annotations: { destructiveHint: true },
+        isDestructive: (input) =>
+          input.disabled === true || input.activationLimit !== undefined || input.expiresAt !== undefined,
       });
       const wrapped = createToolHandler(tool);
 
-      const benign = await wrapped({ licenseKeyId: "1", expiresAt: "2027-01-01" });
+      const benign = await wrapped({ licenseKeyId: "1", disabled: false });
       assert.equal(benign.isError, undefined);
       assert.equal(readAuditEntries().length, 0, "benign edit does not produce an audit entry");
 
@@ -706,6 +713,31 @@ describe("createToolHandler -- registration wrapper", () => {
       assert.equal(destructive.isError, undefined);
       assert.equal(readAuditEntries().length, 1, "activationLimit change must produce an audit entry");
       assert.equal(readAuditEntries()[0]?.tool, "ls_update_license_key");
+    });
+
+    it("a benign call to a static-true predicate tool is not stopped by DESTRUCTIVE_RATE_LIMIT=0", async () => {
+      // The 1.0 flip of the four predicate tools to destructiveHint:true is
+      // for MCP clients only. If the static hint leaked into the wrapper's
+      // verdict, the kill switch would also block every benign edit (a
+      // re-enable, a rename, a URL change) on those tools.
+      process.env.LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT = "0";
+      const tool = makeTool({
+        name: "ls_update_license_key",
+        authorityClass: "key",
+        annotations: { destructiveHint: true },
+        isDestructive: (input) =>
+          input.disabled === true || input.activationLimit !== undefined || input.expiresAt !== undefined,
+      });
+      const wrapped = createToolHandler(tool);
+
+      const benign = await wrapped({ licenseKeyId: "1", disabled: false });
+      assert.equal(benign.isError, undefined, "benign call must pass the destructive limiter");
+      assert.equal(tool.calls.length, 1);
+
+      const destructive = await wrapped({ licenseKeyId: "1", disabled: true });
+      assert.equal(destructive.isError, true, "destructive call must hit the limiter");
+      assert.match(destructive.content[0]?.text ?? "", /Destructive call rate limit exceeded/);
+      assert.equal(tool.calls.length, 1, "the blocked call never reached the handler");
     });
 
     it("predicate-destructive call that throws still produces an audit entry tagged audit:true", async () => {
@@ -720,8 +752,9 @@ describe("createToolHandler -- registration wrapper", () => {
       const tool = makeTool({
         name: "ls_update_license_key",
         authorityClass: "key",
-        annotations: { destructiveHint: false },
-        isDestructive: (input) => input.activationLimit !== undefined,
+        annotations: { destructiveHint: true },
+        isDestructive: (input) =>
+          input.disabled === true || input.activationLimit !== undefined || input.expiresAt !== undefined,
         handler: async () => {
           throw new Error("upstream 502");
         },
@@ -768,6 +801,169 @@ describe("createToolHandler -- registration wrapper", () => {
       assert.equal(entries[0]?.audit, true);
       assert.equal(entries[0]?.error, "Refund window closed");
       assert.equal(entries[0]?.request_id, "req_abc");
+    });
+  });
+
+  // Issue #40. ls_deactivate_license is destructive on every call, so its
+  // input -- which carries the raw license key, a bearer credential for the
+  // License API -- flows into all three audit sinks: the stderr tool_call
+  // line, the audit ring, and the lemonsqueezy://audit-log resource that
+  // serializes the ring. Flipping it to destructiveHint:true is only safe
+  // because redactSecrets masks `licenseKey` by name. These cases drive the
+  // REAL tool object through the wrapper on every outcome the wrapper
+  // distinguishes and check each sink for the raw key. Every case also
+  // asserts the MASKED value is present, so none can pass by dropping
+  // `inputs` altogether. licenseRequest never loads the API key, so no key
+  // env is needed.
+  describe("ls_deactivate_license end to end -- license key never reaches an audit sink", () => {
+    const KEY = "38b1460a-5104-4067-a91d-77b872934d51";
+    const INPUT = { licenseKey: KEY, instanceId: "inst-1" };
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    let stderrLines: string[] = [];
+    // biome-ignore lint/suspicious/noExplicitAny: minimal stderr stub
+    let originalWrite: any;
+
+    // Same cast as priceTool() above: licenseTools is `as const`.
+    function deactivateTool(): RegisterableTool<Record<string, unknown>> {
+      const tool = licenseTools.find((t) => t.name === "ls_deactivate_license");
+      if (!tool) throw new Error("ls_deactivate_license not found");
+      return tool as unknown as RegisterableTool<Record<string, unknown>>;
+    }
+
+    function mockFetch(respond: () => Response) {
+      globalThis.fetch = (async () => {
+        fetchCalls += 1;
+        return respond();
+      }) as typeof fetch;
+    }
+
+    function stderrToolCalls(): Record<string, unknown>[] {
+      return stderrLines
+        .flatMap((chunk) => chunk.split("\n"))
+        .filter((line) => line.trim() !== "")
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((entry) => entry.event === "tool_call");
+    }
+
+    // One audited call, with the key masked (not dropped) and instanceId
+    // intact in every sink, and the raw key in none of them.
+    function assertMaskedInEverySink(status: string) {
+      const expectedInputs = { licenseKey: maskLicenseKey(KEY), instanceId: "inst-1" };
+      assert.notEqual(
+        expectedInputs.licenseKey,
+        "[REDACTED]",
+        "precondition: a UUID key is long enough to fingerprint",
+      );
+
+      const entries = readAuditEntries();
+      assert.equal(entries.length, 1, "exactly one audit entry per call");
+      assert.equal(entries[0]?.tool, "ls_deactivate_license");
+      assert.equal(entries[0]?.status, status);
+      assert.equal(entries[0]?.audit, true);
+      assert.deepEqual(entries[0]?.inputs, expectedInputs);
+
+      const resourceText = readAuditLogResource(new URL("lemonsqueezy://audit-log")).contents[0]?.text ?? "";
+      assert.deepEqual(JSON.parse(resourceText).inputs, expectedInputs);
+
+      const toolCalls = stderrToolCalls();
+      assert.equal(toolCalls.length, 1, "exactly one tool_call line on stderr");
+      assert.equal(toolCalls[0]?.status, status);
+      assert.equal(toolCalls[0]?.audit, true);
+      assert.deepEqual(toolCalls[0]?.inputs, expectedInputs);
+
+      assert.ok(!JSON.stringify(readAuditEntries()).includes(KEY), "raw key in the audit ring");
+      assert.ok(!resourceText.includes(KEY), "raw key in the audit-log resource");
+      assert.ok(!stderrLines.join("").includes(KEY), "raw key on stderr");
+    }
+
+    beforeEach(() => {
+      // Runs after the outer beforeEach, which cleared every ENV_KEYS entry.
+      fetchCalls = 0;
+      stderrLines = [];
+      process.env.LEMONSQUEEZY_LOG = "all";
+      originalWrite = process.stderr.write.bind(process.stderr);
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        stderrLines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+        return true;
+        // biome-ignore lint/suspicious/noExplicitAny: matches the stubbed type
+      }) as any;
+    });
+
+    afterEach(() => {
+      process.stderr.write = originalWrite;
+      globalThis.fetch = originalFetch;
+    });
+
+    it("the shipped tool is destructive on every call, with no predicate", () => {
+      const tool = deactivateTool();
+      assert.equal(tool.annotations.destructiveHint, true);
+      assert.equal(tool.isDestructive, undefined);
+    });
+
+    it("200: audited as ok", async () => {
+      mockFetch(
+        () =>
+          new Response(JSON.stringify({ deactivated: true, license_key: { key: KEY } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+      );
+      const result = await createToolHandler(deactivateTool())(INPUT);
+      assert.equal(result.isError, undefined);
+      assert.equal(fetchCalls, 1);
+      // The upstream response echoes the key back, so it IS in the client's
+      // result text -- to the client that just sent it. Only the audit sinks
+      // are required to be clean.
+      assertMaskedInEverySink("ok");
+    });
+
+    it("404: audited as error", async () => {
+      mockFetch(
+        () =>
+          new Response(JSON.stringify({ deactivated: false, error: "license_key not found." }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          }),
+      );
+      const result = await createToolHandler(deactivateTool())(INPUT);
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /license_key not found/);
+      assertMaskedInEverySink("error");
+    });
+
+    it("fetch throws: audited as exception", async () => {
+      globalThis.fetch = (async () => {
+        fetchCalls += 1;
+        throw new TypeError("fetch failed");
+      }) as typeof fetch;
+      const result = await createToolHandler(deactivateTool())(INPUT);
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /fetch failed/);
+      assert.equal(fetchCalls, 1, "a License API POST is not retried on a network error");
+      assertMaskedInEverySink("exception");
+    });
+
+    it("LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT=0 blocks it before any HTTP call (the #40 repro)", async () => {
+      process.env.LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT = "0";
+      mockFetch(() => new Response(JSON.stringify({ deactivated: true }), { status: 200 }));
+      const result = await createToolHandler(deactivateTool())(INPUT);
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /Destructive call rate limit exceeded \(0\/min\)/);
+      assert.equal(fetchCalls, 0, "the kill switch must stop the call before it reaches the License API");
+      assertMaskedInEverySink("guardrail_block");
+    });
+
+    it("LEMONSQUEEZY_LOG=audit: a successful call emits exactly one line, the audited tool_call", async () => {
+      // The half of #40 its reporter could not verify. At `audit` the
+      // successful http_call line is filtered out, so the audited tool_call
+      // line is the only thing on stderr.
+      process.env.LEMONSQUEEZY_LOG = "audit";
+      mockFetch(() => new Response(JSON.stringify({ deactivated: true }), { status: 200 }));
+      const result = await createToolHandler(deactivateTool())(INPUT);
+      assert.equal(result.isError, undefined);
+      assert.equal(stderrLines.length, 1, `expected exactly one stderr line, got: ${stderrLines.join("")}`);
+      assertMaskedInEverySink("ok");
     });
   });
 
