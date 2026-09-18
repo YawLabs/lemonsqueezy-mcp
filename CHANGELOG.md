@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+**1.0.0 locks the public surface.** [SEMVER.md](./SEMVER.md) now spells out what that surface is: tool names and input fields, MCP annotations, the authority class names and each tool's class, which calls count as destructive, the documented env vars, the `lemonsqueezy://audit-log` resource, and the fields the server adds to responses. From here on its MAJOR / MINOR / PATCH rules apply strictly. `src/tools/tools.test.ts` pins the `destructiveHint: true` set, the `isDestructive`-predicate set, the `readOnlyHint: false` set and the full tool-to-class map, so a change to any of them fails `npm test` until it is made deliberately. The changes marked **Breaking** below were made now, before the lock, because each would need a major version afterwards. Tracked in #2.
+
+### Changed
+
+- **Breaking: `ls_deactivate_license` is now destructive (`destructiveHint: true`)** (#40). It revokes an instance's access on every call, whatever the input. `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` now counts it (`0` blocks it). Its calls are tagged `audit: true`, logged at `LEMONSQUEEZY_LOG=audit` even when they succeed, and recorded in `lemonsqueezy://audit-log`, with the license key masked (see Security). MCP clients that gate destructive tools will now ask before calling it. It stays in class `key`. `ls_activate_license` (additive) and `ls_validate_license` (read-only) are unchanged.
+- **Breaking: the four input-dependent update tools now declare `destructiveHint: true`**: `ls_update_customer`, `ls_update_subscription`, `ls_update_license_key` and `ls_update_webhook`. Each can archive, pause, switch plan, disable or rotate a secret, and MCP defines `false` as "only additive updates". They keep their `isDestructive` predicates, and the server still decides per call from those, so the destructive rate limit and the audit log behave exactly as before for these four. What changes is the static hint MCP clients see, so they may now prompt for confirmation on these tools.
+- **Breaking: `ls_create_usage_record` moves from authority class `mutate` to `recurring`.** Usage reports feed the metered bill, and `mutate` is documented as non-money, while `recurring` already holds the seat-quantity sibling `ls_update_subscription_item`. `LEMONSQUEEZY_DISABLE_CLASSES` lists that include `recurring` now block usage reporting, and lists with only `mutate` no longer do. `recurring:N` budgets in `LEMONSQUEEZY_RATE_LIMIT_PER_CLASS` now count usage reports, so raise yours if an automated metering agent shares it.
+- **`ls_update_subscription` counts more calls as destructive:** any `billingAnchor`, `invoiceImmediately: true`, or any `trialEndsAt` (a date or `null`), on top of the existing pause (`void` / `free`) and plan switch (`variantId`). LemonSqueezy charges immediately on `invoice_immediately`, and a new billing anchor bills a prorated amount, so these are not "billing-neutral" as the old description said. `pause: "resume"`, `cancelled: false`, `invoiceImmediately: false` and `disableProrations` stay non-destructive.
+- **`ls_update_license_key` counts any `expiresAt` change as destructive**, as it already did for any `activationLimit` change: the server cannot tell a shortened expiry from an extended one without a fetch. `disabled: true` still counts; `disabled: false` alone does not.
+- **The Docker image now builds on `node:22-alpine`** (was `node:20-alpine`, past end of life and below `engines.node >=22`). `Containerfile` is regenerated to match.
+- **`npm run test:integration` exits 1 when `LEMONSQUEEZY_TEST_API_KEY` or `LEMONSQUEEZY_TEST_STORE_ID` is unset.** Before, it skipped every suite and exited 0, so a missing credential looked like a pass. `npm test` still skips the integration suites quietly.
+- **`release.sh` checks `npm whoami` before it starts** whenever the workstation will publish, so a dead npm token stops the release before the `v*` tag is pushed instead of after. It also no longer describes a CI release workflow; this repo has none, and the workstation run is the only release path.
+
+### Added
+
+- `ls_update_license_key` accepts `activationLimit: null`, which LemonSqueezy documents as "unlimited". The old description said `0` meant unlimited, which is wrong; the field now says "Pass null for unlimited".
+
+### Fixed
+
+- **`ls_get_checkout` accepts real checkout IDs.** LemonSqueezy checkout IDs are UUIDs, the one management-API resource that does not use integer IDs, but `checkoutId` was validated as a positive-integer string, so every real checkout was rejected before the request was sent. A read-only probe against a live store caught it; the mocked unit suite could not. An integer `checkoutId` is now rejected locally, where before it passed validation and could only ever 404.
+
+### Security
+
+- **License keys are masked in audit and log output.** An input key named `licenseKey`, `license_key` or `license-key` (any case) is written as `[REDACTED:last4=XXXX]` when its value is a string of 16 or more characters, and as `[REDACTED]` otherwise. `licenseKeyId`, `license_key_id` and `licenseKeyInstanceId` are left alone. The License API authenticates with the key alone, so it is a bearer credential. This is what lets `ls_deactivate_license` be audited without writing live keys to stderr or the audit resource. Masking goes by key name only, so a key under an arbitrary field such as `customData` is not caught.
+- **An upstream error body with no usable message is logged and returned redacted.** When a JSON error body carries no string `errors[0].detail`, `errors[0].title` or `error`, the whole body is surfaced through the same redactor as audited inputs, rather than raw. A License API error body can embed the caller's key under `license_key.key`. A non-string `error` / `detail` / `title` is no longer taken as the message either, so an object nesting the key cannot skip the redactor.
+
+### Documentation
+
+- README: the tool catalogue lists all 64 tools, adding the Affiliates section (#42). The release section documents `./release.sh` as the only path (steps 1-8, including the npx smoke test and the MCP Registry publish), with no provenance on a workstation publish and an explicit warning never to run `npm login --auth-type=web` (#43). The `LEMONSQUEEZY_DESTRUCTIVE_RATE_LIMIT` row now lists every destructive call. Also corrected: the retry behaviour, the `LEMONSQUEEZY_API_KEY_COMMAND` tokenizer (no shell), what `pii` actually covers (only the dedicated customer tools; read-class tools still return customer names and emails and accept `include=customer`), the License API tools' boundary (neither the store allowlist nor account separation reaches them), and the redaction rules.
+- SEMVER.md is rewritten for 1.0: the covered surface, and MAJOR / MINOR / PATCH rules for annotations, authority classes, destructive coverage, redaction and the Node floor.
+- CONTRIBUTING.md, `smithery.yaml` and CLAUDE.md are brought in line with the above.
+
+### Build
+
+- `.gitattributes` forces LF line endings, so a Windows checkout passes Biome and the release gate (#55). The `typeRoots` workaround for `oam check` is reverted, now that oam 0.15.3 fixes the check (#56). Neither changes runtime behaviour.
+
 ## [0.14.2] — 2026-09-14
 
 ### Security
@@ -273,6 +309,8 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 
 ## [0.10.9] -- 2026-05-22
 
+Tagged (`v0.10.9`) but never published to npm and never given a GitHub release; these changes first shipped in 0.10.10.
+
 ### Changed
 
 - **Webhook `events` array now requires at least one entry.** `ls_create_webhook` and `ls_update_webhook` previously let an empty array pass local Zod validation, so a no-op webhook configuration only failed at the LemonSqueezy API as a 422. The new `.min(1)` makes the rejection local with a clearer message; on update, the field stays optional but, when supplied, must be non-empty.
@@ -433,6 +471,8 @@ All notable changes to `@yawlabs/lemonsqueezy-mcp` are documented here. The form
 - `handlers.test.ts` isolation: CI's integration job sets `LEMONSQUEEZY_TEST_API_KEY` from a repo secret. With the priority chain introduced in 0.8.0 (`COMMAND` > `TEST_API_KEY` > `API_KEY`), that injected value took precedence over the in-test stub and broke three handler tests (`ls_get_user` bearer-token assertion plus the missing/empty-key cases). The suite-level `before()` now saves and clears all three source env vars, restores them in `after()`, and resets the secret cache. Reproducible locally by running with `LEMONSQUEEZY_TEST_API_KEY=ci-stub-key LEMONSQUEEZY_API_KEY="" npm test`.
 
 ## [0.8.0] -- 2026-05-13
+
+Never tagged and never published to npm (the version bump is commit `0f010e1`); these changes first shipped in 0.8.1.
 
 Distribution-readiness pass -- closes feature gaps against other OSS LemonSqueezy MCP servers ahead of broader distribution.
 

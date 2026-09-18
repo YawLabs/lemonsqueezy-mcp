@@ -64,30 +64,38 @@ export const licenseKeyTools = [
     name: "ls_update_license_key",
     authorityClass: "key" as const,
     description:
-      "Update a license key's activation limit, expiry date, or disabled status. Setting `disabled: true` revokes customer access and is treated as destructive (rate-limited and audited).",
+      "Update a license key's activation limit, expiry date, or disabled status. Setting `disabled: true`, changing `activationLimit`, or changing `expiresAt` can revoke customer access and is treated as destructive (rate-limited and audited); `disabled: false` alone is not.",
     annotations: {
       title: "Update license key",
       readOnlyHint: false,
-      destructiveHint: false,
+      // Static true: MCP defines false as "only additive updates", and
+      // several inputs here can revoke access. The predicate below still
+      // decides per call whether the server-side destructive limiter and
+      // audit log engage (isDestructiveCall in guardrails.ts never reads this
+      // hint when a predicate exists).
+      destructiveHint: true,
       idempotentHint: true,
       openWorldHint: true,
     },
     // Disabling a license key revokes a customer's access outright. Changing
-    // the activation limit can also revoke access -- setting it to 0, or to
-    // any value below the customer's current activation count, kicks
-    // already-activated instances offline. We can't tell from the input alone
-    // whether a given limit change shrinks or grows, so treat ANY
-    // `activationLimit` change as destructive alongside `disabled: true`.
-    // Benign edits (expiry) stay on the regular path.
-    isDestructive: (input: Record<string, unknown>) => input.disabled === true || input.activationLimit !== undefined,
+    // the activation limit or the expiry can also narrow it -- a lower cap on
+    // activations, an earlier end date. We can't tell from the input alone
+    // whether a given change narrows or widens access (a number or a date can
+    // go either way against the current value, which we don't fetch), so
+    // treat ANY `activationLimit` or `expiresAt` change as destructive
+    // alongside `disabled: true`, including null. Only `disabled: false`
+    // (re-enabling) stays on the regular path.
+    isDestructive: (input: Record<string, unknown>) =>
+      input.disabled === true || input.activationLimit !== undefined || input.expiresAt !== undefined,
     inputSchema: z.object({
       licenseKeyId: lsIdSchema.describe("The license key ID to update"),
       activationLimit: z
         .number()
         .int()
         .min(0)
+        .nullable()
         .optional()
-        .describe("Maximum number of activations allowed (0 = unlimited)"),
+        .describe("Maximum number of activations allowed. Pass null for unlimited."),
       disabled: z.boolean().optional().describe("Set to true to disable this license key"),
       expiresAt: z
         .string()
@@ -98,7 +106,7 @@ export const licenseKeyTools = [
     }),
     handler: async (input: {
       licenseKeyId: string;
-      activationLimit?: number;
+      activationLimit?: number | null;
       disabled?: boolean;
       expiresAt?: string | null;
     }) => {

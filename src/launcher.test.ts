@@ -108,8 +108,7 @@ describe("launcher runtimePlan()", () => {
   it("never serves in-process on a host oam below the floor", () => {
     // Below the floor the host must hand off. Serving there was the bug: an oam
     // older than 0.9.0 runs this server's key-command arguments through a shell,
-    // and anything older than the latest release is not what the server is
-    // verified on.
+    // and anything older than the floor is not what the server is verified on.
     for (const mode of ["auto", "oam"]) {
       for (const sandbox of [false, true]) {
         for (const hostOam of ["0.15.1", "0.9.0", "0.8.2", "0.0.1"]) {
@@ -151,7 +150,7 @@ describe("launcher pickNewest()", () => {
   const { pickNewest, floor } = loadPickNewest();
   const at = (path: string, version: number[] | null): Candidate => ({ path, version });
 
-  it("pins the floor to the latest oam release", () => {
+  it("pins the floor at oam 0.15.2", () => {
     assert.deepEqual(floor, [0, 15, 2]);
   });
 

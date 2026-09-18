@@ -11,7 +11,7 @@
 # states are detected and skipped.
 #
 # Prerequisites for LOCAL runs (one-time setup on this machine):
-#   - Node.js 20+
+#   - Node.js 22+
 #   - npm authenticated as a publisher of @yawlabs/lemonsqueezy-mcp via an
 #     AUTOMATION token in ~/.npmrc (npmjs.com -> Access Tokens -> Generate
 #     -> Automation):
@@ -29,9 +29,11 @@
 #   - $NODE_AUTH_TOKEN populated from secrets.NPM_TOKEN (org-level)
 #   - $GITHUB_TOKEN populated automatically by Actions
 #
-# Either path produces an identical artifact; the typical workflow is to bump
-# + commit + tag + push locally and let CI handle steps 5-6 via the tag-push
-# trigger in .github/workflows/release.yml.
+# This repo has no release workflow (.github/ holds only CODEOWNERS), so the
+# local run is the only release path: it does every step on the workstation,
+# including the npm publish (step 5) and the MCP Registry publish (step 7).
+# CI mode is kept for a tag-push release workflow, the intended end state;
+# nothing invokes it today.
 # =============================================================================
 
 set -euo pipefail
@@ -266,16 +268,32 @@ command -v npm  >/dev/null || fail "npm not installed"
 if [ "$IS_CI" != "true" ]; then
   command -v gh >/dev/null || fail "gh not installed (https://cli.github.com)"
   gh auth status >/dev/null 2>&1 || fail "gh is not authenticated. Run: gh auth login"
-  # No `npm whoami` gate: CI publishes via the org-level NPM_TOKEN
-  # secret on tag push (see step 5's CI-handoff branch). The workstation
-  # never authenticates to npm on this code path. The check was a vestige
-  # of the local-only-deploy era (added in 53de878, predates the CI
-  # restoration in e3ef87a) and blocked otherwise-clean releases on a
-  # credential that's never used.
 
   CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
   if [ "$CURRENT_BRANCH" != "main" ]; then
     fail "Must release from 'main' branch (currently on '$CURRENT_BRANCH')"
+  fi
+
+  # npm auth gate. Step 5 publishes from this workstation unless the version
+  # is already on npm or a release.yml with a publish path takes over -- and
+  # none exists (see the header), so today the workstation always publishes.
+  # Without this gate a dead token surfaces only at step 5, AFTER step 4 has
+  # pushed the vX.Y.Z tag: a public tag with no npm package behind it. The
+  # condition mirrors step 5's branch selection exactly, so the gate runs
+  # only when step 5 would take the workstation-publish branch. In particular
+  # it is skipped on a resume where the version is already on npm, because
+  # steps 6-8 never use the token. The old unconditional check was dropped in
+  # 69fc4bd for exactly that reason -- it blocked releases on a credential the
+  # run never used, back when CI did the publishing.
+  #
+  # `npm whoami` proves the token is LIVE, not that it is an automation token
+  # or that it may publish this package. A 2FA-bound web session left by
+  # 'npm login --auth-type=web' passes it too, and its EOTP only shows up at
+  # step 5. What this catches is the dead or missing token, which step 5
+  # would otherwise hit as a failed publish after the tag is already public.
+  if ! { [ -f ".github/workflows/release.yml" ] && grep -q "npm publish\|NODE_AUTH_TOKEN" .github/workflows/release.yml; } \
+    && [ "$(npm view "@yawlabs/lemonsqueezy-mcp@${VERSION}" version 2>/dev/null || echo "")" != "$VERSION" ]; then
+    npm whoami >/dev/null 2>&1 || fail "npm whoami failed -- the automation token in ~/.npmrc is dead or missing (or the registry is unreachable). Stopping before step 5 publishes (on a fresh run, also before step 4 pushes the v${VERSION} tag). Restore the token per the header (never 'npm login --auth-type=web'), then re-run."
   fi
 fi
 
@@ -724,9 +742,10 @@ else
 fi
 
 # Provenance attestation check — npm attaches sigstore attestations when
-# `npm publish --provenance` runs inside GitHub Actions (which is our CI path).
-# A missing attestation is not fatal for local runs (we publish without
-# --provenance there), but in CI it means something regressed.
+# `npm publish --provenance` runs inside GitHub Actions (CI mode, which no
+# workflow invokes today -- see the header). A missing attestation is not
+# fatal for local runs (we publish without --provenance there), but in CI it
+# means something regressed.
 if [ "$IS_CI" = "true" ]; then
   ATTEST=$(npm view "@yawlabs/lemonsqueezy-mcp@${VERSION}" dist.attestations.provenance.predicateType 2>/dev/null || echo "")
   if [ -n "$ATTEST" ]; then

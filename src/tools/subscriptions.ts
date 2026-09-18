@@ -74,26 +74,48 @@ export const subscriptionTools = [
     name: "ls_update_subscription",
     authorityClass: "recurring" as const,
     description:
-      "Update a subscription. Can change the variant (plan switch), pause/unpause, set billing anchor, or update invoice details. Pausing (`pause: 'void'` or `'free'`) or switching plan (`variantId`) is customer-impacting and is treated as destructive (rate-limited and audited); resuming and the billing-neutral edits are not. Use ls_cancel_subscription for cancellation.",
+      "Update a subscription. Can change the variant (plan switch), pause/unpause, set billing anchor, or update invoice details. Pausing (`pause: 'void'` or `'free'`), switching plan (`variantId`), changing the billing anchor (`billingAnchor`), invoicing immediately (`invoiceImmediately: true`), or changing the trial end (`trialEndsAt`) changes what the customer pays or when, and is treated as destructive (rate-limited and audited); resuming (`pause: 'resume'`), un-cancelling (`cancelled: false`), `invoiceImmediately: false` and `disableProrations` are not. Use ls_cancel_subscription for cancellation.",
     annotations: {
       title: "Update subscription",
       readOnlyHint: false,
-      destructiveHint: false,
+      // Static true: MCP defines false as "only additive updates", and
+      // several inputs here pause, re-plan or re-bill the customer. The
+      // predicate below still decides per call whether the server-side
+      // destructive limiter and audit log engage (isDestructiveCall in
+      // guardrails.ts never reads this hint when a predicate exists).
+      destructiveHint: true,
       idempotentHint: true,
       openWorldHint: true,
     },
-    // A pause (void/free) or plan switch is the customer-impacting subset of
-    // this tool's surface; treat those calls as destructive so they engage
-    // the rate limiter and audit log. Intentional exclusions, all of which
-    // either reverse a destructive action or are billing-neutral:
-    //   - pause === "resume"        un-pause, restoring access
-    //   - cancelled === false       un-cancel before expiry, restoring access
-    //   - billingAnchor             changes anchor day, no immediate charge
-    //   - trialEndsAt               extending or ending a trial
-    //   - invoiceImmediately        toggle on the next prorated edit
-    //   - disableProrations         toggle on plan-change behavior
+    // The calls that change what the customer pays, or when, are destructive
+    // so they engage the rate limiter and audit log:
+    //   - pause "void" / "free"     pauses the subscription
+    //   - variantId                 plan switch
+    //   - billingAnchor             per LemonSqueezy's update-subscription docs,
+    //                               a new anchor issues a paid, prorated trial
+    //                               that is charged when it ends
+    //   - invoiceImmediately: true  per the same docs, the update is charged
+    //                               now: a prorated invoice is generated and
+    //                               payment attempted
+    //   - trialEndsAt (any value)   ending or shortening a trial brings the
+    //                               first charge forward; extending it does
+    //                               not, but telling which needs a fetch, so
+    //                               any change (null included) counts
+    // Intentional exclusions:
+    //   - pause === "resume"        un-pause
+    //   - cancelled === false       un-cancel before expiry
+    //     These two are a consistent pair: each reverses a destructive action
+    //     and returns the customer to billing they had already agreed to, so
+    //     they are treated alike.
+    //   - invoiceImmediately: false the default proration behaviour
+    //   - disableProrations         toggle on plan-change behavior; the plan
+    //                               change itself (variantId) already counts
     isDestructive: (input: Record<string, unknown>) =>
-      (typeof input.pause === "string" && input.pause !== "resume") || typeof input.variantId === "string",
+      (typeof input.pause === "string" && input.pause !== "resume") ||
+      typeof input.variantId === "string" ||
+      input.billingAnchor !== undefined ||
+      input.invoiceImmediately === true ||
+      input.trialEndsAt !== undefined,
     inputSchema: z.object({
       subscriptionId: lsIdSchema.describe("The subscription ID to update"),
       variantId: lsIdSchema.optional().describe("New variant ID for plan switching"),

@@ -1,16 +1,26 @@
 import { z } from "zod";
 import { licenseRequest } from "../api.js";
 
-// The three License-API tools below are intentionally NOT destructiveHint:true,
-// so they bypass the audit buffer and the destructive rate limit. ls_activate
-// grants access and ls_validate is read-only -- neither is access-revoking.
-// ls_deactivate DOES revoke an instance's access, but its input carries the raw
-// `licenseKey`, which redactSecrets() deliberately preserves (it is a business
-// identifier, not a secret-named key -- see redact.ts). Auditing it would write
-// live license keys into the in-memory buffer and the lemonsqueezy://audit-log
-// MCP resource. Admin-side revocation that SHOULD be audited goes through
-// ls_update_license_key (disabled:true), whose input is an opaque licenseKeyId,
-// not the key itself.
+// The three License-API tools authenticate with the caller-supplied license
+// key, not the API key (`licenseRequest` in api.ts sends no Authorization
+// header), and have no storeId field or requiredFilters. So neither a scoped
+// API key nor LEMONSQUEEZY_ALLOWED_STORE_IDS limits them: they work on any
+// account's keys. The class gates (LEMONSQUEEZY_DISABLE_CLASSES and
+// LEMONSQUEEZY_RATE_LIMIT_PER_CLASS) and, for deactivate, the destructive
+// rate limit and audit log are the only per-call controls (see item 4 of the
+// scope note at the top of guardrails.ts).
+//
+//   - ls_deactivate_license is destructive on every call (static
+//     destructiveHint:true, no predicate): it revokes an instance's access and
+//     no input makes it a read. Its `licenseKey` input is a bearer credential,
+//     so redactSecrets() masks it by key name before it reaches any audit sink
+//     -- stderr, the audit ring, and the lemonsqueezy://audit-log resource
+//     (see LICENSE_KEY_RE / maskLicenseKey in redact.ts). The flip and the mask
+//     ship together: without the mask, auditing would write live keys to all
+//     three.
+//   - ls_activate_license stays destructiveHint:false: activation is additive
+//     (MCP defines false as "performs only additive updates").
+//   - ls_validate_license is read-only, and in class `read`, not `key`.
 export const licenseTools = [
   {
     name: "ls_activate_license",
@@ -64,11 +74,11 @@ export const licenseTools = [
     name: "ls_deactivate_license",
     authorityClass: "key" as const,
     description:
-      "Deactivate a license key instance. Does not require an API key — uses the license key itself for auth.",
+      "Deactivate a license key instance, revoking that instance's access. Destructive: rate-limited and audited, with the license key masked in the audit entry. Does not require an API key — uses the license key itself for auth.",
     annotations: {
       title: "Deactivate license",
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       idempotentHint: true,
       openWorldHint: true,
     },

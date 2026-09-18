@@ -510,4 +510,18 @@ describe("isDestructiveCall", () => {
     assert.equal(isDestructiveCall(tool, { disabled: false }), false);
     assert.equal(isDestructiveCall(tool, {}), false);
   });
+
+  it("lets a predicate return false even when the static hint is true", () => {
+    // The shape every predicate tool ships in from 1.0: destructiveHint:true
+    // for MCP clients, the predicate for the server-side verdict. A benign
+    // input must stay non-destructive, or the four predicate tools would put
+    // every edit through the destructive limiter and the audit log.
+    const tool = {
+      annotations: { destructiveHint: true },
+      isDestructive: (input: Record<string, unknown>) => input.disabled === true,
+    };
+    assert.equal(isDestructiveCall(tool, { disabled: true }), true);
+    assert.equal(isDestructiveCall(tool, { disabled: false }), false);
+    assert.equal(isDestructiveCall(tool, {}), false);
+  });
 });

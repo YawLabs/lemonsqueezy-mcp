@@ -8,9 +8,10 @@ import type { LogEntry } from "./logger.js";
  * the logger normally prepends as it serializes is captured here instead.
  *
  * Entries are stored AS-IS (not cloned). The caller passes already-redacted
- * material (see `src/index.ts`, which passes `redactSecrets(input)`); cloning
- * would just spend cycles on data the caller has already prepared. Do not
- * mutate an entry after handing it to `pushAuditEntry`.
+ * material (see `createToolHandler` in `src/wrapper.ts`, which passes
+ * `redactSecrets(input)`); cloning would just spend cycles on data the
+ * caller has already prepared. Do not mutate an entry after handing it to
+ * `pushAuditEntry`.
  */
 export type AuditEntry = { ts: string } & LogEntry;
 

@@ -52,7 +52,12 @@ export const usageRecordTools = [
   },
   {
     name: "ls_create_usage_record",
-    authorityClass: "mutate" as const,
+    // `recurring`, not `mutate`: a usage record changes the metered bill on a
+    // subscription item, the same authority as ls_update_subscription_item's
+    // quantity change. So LEMONSQUEEZY_DISABLE_CLASSES=recurring blocks it,
+    // and a `recurring:N` budget in LEMONSQUEEZY_RATE_LIMIT_PER_CLASS counts
+    // usage reports alongside subscription changes.
+    authorityClass: "recurring" as const,
     description:
       "Report usage for a metered subscription item. Use 'increment' action to add to the current usage, or 'set' to replace it.",
     annotations: {

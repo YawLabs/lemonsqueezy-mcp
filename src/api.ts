@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { logEvent } from "./logger.js";
+import { redactSecrets } from "./redact.js";
 import { fetchWithRetry, isAbortTimeoutError, isRetryTimeoutError } from "./retry.js";
 import { invalidateApiKeyCache, loadApiKey } from "./secret.js";
 
@@ -25,6 +26,21 @@ export const lsIdSchema = z
   .string()
   .max(10000)
   .regex(/^[1-9]\d*$/, "ID must be a positive integer string (e.g. '12345')");
+
+/**
+ * Checkouts are the one management-API resource whose ID is a UUID, not a
+ * positive-integer string -- `ls_list_checkouts` and `ls_create_checkout`
+ * both return ids like `5e8b546c-c561-4a2c-a586-40c18bb2a195`. Validating
+ * `checkoutId` with `lsIdSchema` made `ls_get_checkout` reject every real
+ * checkout before the request was sent.
+ */
+export const lsUuidSchema = z
+  .string()
+  .max(10000)
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    "ID must be a UUID (e.g. '5e8b546c-c561-4a2c-a586-40c18bb2a195')",
+  );
 
 /**
  * Encode a value for safe inclusion as a URL path segment. Always use this for
@@ -111,11 +127,20 @@ type ErrorEnvelope = {
  * `detail` at all. Without the `title` arm that case fell all the way through
  * to the raw body, so the agent was handed a JSON blob instead of a reason.
  * `error` is the License API's bare-string form. Returns null when the envelope
- * carries nothing usable, so the caller can fall back to the raw text.
+ * carries nothing usable, so the caller can fall back to a redacted copy of
+ * the body.
+ *
+ * Only a string counts as a message. The envelope type is a cast over
+ * whatever upstream sent, and a non-string `error` / `detail` / `title` (an
+ * object nesting `license_key.key`, say) returned here would reach the log
+ * line, the client and the audit entry without passing the redactor.
  */
-function extractErrorMessage(parsed: ErrorEnvelope): string | null {
-  const first = parsed.errors?.[0];
-  return first?.detail ?? first?.title ?? parsed.error ?? null;
+function extractErrorMessage(parsed: unknown): string | null {
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const envelope = parsed as ErrorEnvelope;
+  const first = Array.isArray(envelope.errors) ? envelope.errors[0] : undefined;
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  return str(first?.detail) ?? str(first?.title) ?? str(envelope.error) ?? null;
 }
 
 /**
@@ -134,26 +159,13 @@ async function handleErrorResponse<T>(
   requestId: string | undefined,
 ): Promise<ApiResponse<T>> {
   const errorBody = await res.text();
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(errorBody) as ErrorEnvelope;
-    const detail = extractErrorMessage(parsed) ?? errorBody;
-    logEvent({
-      event: "http_call",
-      method: route.method,
-      path: route.path,
-      status: res.status,
-      latency_ms,
-      request_id: requestId,
-      error: detail,
-    });
-    return {
-      ok: false,
-      status: res.status,
-      data: parsed as T,
-      error: decorateError(detail, requestId),
-      requestId,
-    };
+    parsed = JSON.parse(errorBody);
   } catch {
+    // Not JSON: surfaced as-is. There are no key names to redact by. Only the
+    // parse sits in this try, so nothing that runs after a successful parse
+    // can land here and send the raw JSON body out.
     logEvent({
       event: "http_call",
       method: route.method,
@@ -170,6 +182,29 @@ async function handleErrorResponse<T>(
       requestId,
     };
   }
+  // A JSON body with no recognizable message is surfaced whole, and it is
+  // logged at LEMONSQUEEZY_LOG=error for any tool and returned as the error
+  // text. A License API body can embed the caller's key
+  // (`license_key: { key: ... }`), so it goes through the same redactor as
+  // audited inputs rather than out raw -- a `license_key` object value becomes
+  // "[REDACTED]".
+  const detail = extractErrorMessage(parsed) ?? JSON.stringify(redactSecrets(parsed));
+  logEvent({
+    event: "http_call",
+    method: route.method,
+    path: route.path,
+    status: res.status,
+    latency_ms,
+    request_id: requestId,
+    error: detail,
+  });
+  return {
+    ok: false,
+    status: res.status,
+    data: parsed as T,
+    error: decorateError(detail, requestId),
+    requestId,
+  };
 }
 
 /**

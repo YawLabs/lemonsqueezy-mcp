@@ -4,22 +4,23 @@ startCommand:
   type: stdio
   configSchema:
     # JSON Schema defining the configuration options for the MCP.
+    # No field is required: the API key can come from lemonsqueezyApiKey,
+    # lemonsqueezyTestApiKey or lemonsqueezyApiKeyCommand, and the License API
+    # tools need none of them.
     type: object
-    required:
-      - lemonsqueezyApiKey
     properties:
       lemonsqueezyApiKey:
         type: string
-        description: LemonSqueezy API key (Bearer token). Required.
+        description: LemonSqueezy API key (Bearer token). Required for the management-API tools unless lemonsqueezyApiKeyCommand or lemonsqueezyTestApiKey is set.
       lemonsqueezyApiKeyCommand:
         type: string
-        description: Shell command that prints the API key on stdout. Used in place of lemonsqueezyApiKey for secret managers (1Password, pass, etc.).
+        description: Command that prints the API key on stdout. Run directly, not through a shell -- arguments are split on spaces and tabs and quotes group an argument, but pipes, redirects and $VAR expansion do not work; put anything more complex in a script run through its interpreter (e.g. sh get-key.sh). Takes precedence over lemonsqueezyApiKey and lemonsqueezyTestApiKey. For secret managers (1Password, pass, etc.).
       lemonsqueezyTestApiKey:
         type: string
-        description: Separate API key used by the integration test suite. Optional.
+        description: Test-mode API key. When set, the server uses it INSTEAD of lemonsqueezyApiKey (announced once on stderr), unless lemonsqueezyApiKeyCommand is set. Leave empty for production.
       lemonsqueezyAllowedStoreIds:
         type: string
-        description: Comma-separated allowlist of store IDs. When set, the server refuses operations targeting any store ID outside the list.
+        description: Comma-separated allowlist of store IDs. Tools that take a storeId reject other stores and require one; list-by-parent tools require a parent-ID filter. Tools addressed by a resource ID other than a storeId (e.g. ls_get_order, ls_refund_order), ls_list_stores, ls_list_affiliates and the License API tools are not gated; see the README.
       lemonsqueezyMaxRefundAmountCents:
         type: integer
         minimum: 1
@@ -27,10 +28,10 @@ startCommand:
       lemonsqueezyDestructiveRateLimit:
         type: integer
         minimum: 1
-        description: Maximum destructive tool calls allowed per 60-second rolling window (per server instance). Example 5. Combines with lemonsqueezyRateLimitPerClass; both must pass.
+        description: Maximum destructive tool calls allowed per 60-second rolling window (per server instance). Example 5. Counts refunds, cancellations, archives, deletes, usage reports, subscription-item quantity changes, license deactivations and the destructive update inputs listed in the README; those calls are also audited. Combines with lemonsqueezyRateLimitPerClass; both must pass.
       lemonsqueezyDisableClasses:
         type: string
-        description: Comma-separated list of authority classes to refuse outright. Valid classes are read, pii, mutate, money, recurring, key, webhook. Example "money,recurring,pii" lets reads through but blocks refunds, subscription changes, and customer-record access. Unknown class names cause server startup to fail.
+        description: Comma-separated list of authority classes to refuse outright. Valid classes are read, pii, mutate, money, recurring, key, webhook. Example "money,recurring,pii" blocks refunds, subscription changes and usage reporting, and the dedicated customer tools; read-class tools still return customer names and emails. Unknown class names cause server startup to fail.
       lemonsqueezyRateLimitPerClass:
         type: string
         description: Per-authority-class rolling rate limits, comma-separated. Each entry is "class:N", "class:N/m", or "class:N/h"; bare numbers default to per-minute. Example "money:2/h,recurring:5/h,key:10/m". Composes with lemonsqueezyDestructiveRateLimit. This is the load-bearing setting for runaway-agent prevention -- LemonSqueezy permissions cannot express per-class call ceilings.
@@ -52,10 +53,13 @@ startCommand:
   commandFunction:
     # Returns the CLI invocation that starts the MCP server on stdio.
     # Smithery validates the inbound config against configSchema before
-    # calling this function, so required fields are guaranteed present.
+    # calling this function. No field is required (the key can come from
+    # lemonsqueezyApiKey, lemonsqueezyTestApiKey or lemonsqueezyApiKeyCommand), so every env var is
+    # set only when its field is present.
     |-
       (config) => {
-        const env = { LEMONSQUEEZY_API_KEY: config.lemonsqueezyApiKey };
+        const env = {};
+        if (config.lemonsqueezyApiKey) env.LEMONSQUEEZY_API_KEY = config.lemonsqueezyApiKey;
         if (config.lemonsqueezyApiKeyCommand) env.LEMONSQUEEZY_API_KEY_COMMAND = config.lemonsqueezyApiKeyCommand;
         if (config.lemonsqueezyTestApiKey) env.LEMONSQUEEZY_TEST_API_KEY = config.lemonsqueezyTestApiKey;
         if (config.lemonsqueezyAllowedStoreIds) env.LEMONSQUEEZY_ALLOWED_STORE_IDS = config.lemonsqueezyAllowedStoreIds;

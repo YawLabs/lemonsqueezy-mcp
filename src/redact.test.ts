@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, posix, resolve } from "node:path";
 import { describe, it } from "node:test";
-import { redactSecrets } from "./redact.js";
+import { fileURLToPath } from "node:url";
+import { maskLicenseKey, redactSecrets } from "./redact.js";
 
 describe("redactSecrets", () => {
   describe("primitives pass through unchanged", () => {
@@ -86,9 +89,13 @@ describe("redactSecrets", () => {
       });
     });
 
-    it("does NOT redact UUID-shaped license keys, hyphenated codes, or short opaque IDs", () => {
+    it("does NOT redact UUID-shaped values, hyphenated codes, or short opaque IDs", () => {
+      // Value-shape only: none of these is JWT-shaped, so none is redacted
+      // under a neutral key. A license-key VALUE under a free-form key like
+      // `activationCode` is deliberately left alone too -- license-key masking
+      // goes by key name only (see "license keys are masked, not preserved").
       const input = {
-        licenseKey: "ABCD-EFGH-1234-5678",
+        activationCode: "ABCD-EFGH-1234-5678",
         instanceId: "8e3a4f9d-1234-5678-9abc-def012345678",
         storeId: "12345",
         sku: "PRO-MONTHLY",
@@ -117,9 +124,9 @@ describe("redactSecrets", () => {
   });
 
   describe("ordinary identifiers are NOT redacted", () => {
-    it("preserves licenseKey, instanceId, storeId, orderId, webhookId", () => {
+    it("preserves licenseKeyId, instanceId, storeId, orderId, webhookId", () => {
       const input = {
-        licenseKey: "lk_abc",
+        licenseKeyId: "900",
         instanceId: "inst_1",
         storeId: "store_1",
         orderId: "ord_1",
@@ -130,9 +137,96 @@ describe("redactSecrets", () => {
     it("preserves keys that merely contain a secret substring", () => {
       // The regex is anchored, so `secretQuestion` (not exactly "secret")
       // is not matched. This is intentional: matching substrings would
-      // accidentally redact business fields like `licenseKey`.
+      // accidentally redact business fields -- `shippingAddress` contains
+      // `pin`. LICENSE_KEY_RE is anchored for the same reason, which is what
+      // keeps `licenseKeyId` (above) readable.
       assert.deepEqual(redactSecrets({ secretQuestion: "what?" }), { secretQuestion: "what?" });
       assert.deepEqual(redactSecrets({ tokenizer: "v1" }), { tokenizer: "v1" });
+      assert.deepEqual(redactSecrets({ shippingAddress: "1 Main St" }), { shippingAddress: "1 Main St" });
+    });
+  });
+
+  describe("license keys are masked, not preserved", () => {
+    // A license key authenticates the License API by itself, so it is a
+    // bearer credential. Masked by key name to "[REDACTED:last4=XXXX]" so an
+    // auditor can still tell which key an entry refers to.
+    const KEY = "38b1460a-5104-4067-a91d-77b872934d51";
+
+    it("masks to the documented [REDACTED:last4=XXXX] format", () => {
+      // The one place the format is spelled out literally: README documents
+      // it, so a change here is a docs change too. Every other assertion
+      // derives the expected value from maskLicenseKey().
+      assert.equal(maskLicenseKey(KEY), "[REDACTED:last4=4d51]");
+      assert.deepEqual(redactSecrets({ licenseKey: KEY }), { licenseKey: "[REDACTED:last4=4d51]" });
+    });
+
+    it("masks every spelling LICENSE_KEY_RE covers", () => {
+      const masked = maskLicenseKey(KEY);
+      for (const key of ["licenseKey", "license_key", "license-key", "LicenseKey", "LICENSE_KEY"]) {
+        assert.deepEqual(redactSecrets({ [key]: KEY }), { [key]: masked }, `${key} must be masked`);
+      }
+    });
+
+    it("passes the opaque management-API IDs through unchanged", () => {
+      // Anchoring is what keeps these out: each merely STARTS with licenseKey.
+      const input = { licenseKeyId: "900", license_key_id: "901", licenseKeyInstanceId: "902" };
+      assert.deepEqual(redactSecrets(input), input);
+    });
+
+    it("fully redacts a key shorter than 16 characters", () => {
+      // Four characters of a short value is too large a share to print.
+      const fifteen = "ABCD-EFGH-12345";
+      const sixteen = "ABCD-EFGH-123456";
+      assert.equal(fifteen.length, 15);
+      assert.equal(sixteen.length, 16);
+      assert.deepEqual(redactSecrets({ licenseKey: "ABC-123" }), { licenseKey: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ licenseKey: fifteen }), { licenseKey: "[REDACTED]" });
+      // 16 characters is the floor: that value keeps its last four.
+      assert.notEqual(maskLicenseKey(sixteen), "[REDACTED]", "16 characters is the floor");
+      assert.deepEqual(redactSecrets({ licenseKey: sixteen }), { licenseKey: maskLicenseKey(sixteen) });
+      assert.ok(maskLicenseKey(sixteen).includes("3456"), "the last four characters are kept");
+      assert.ok(!maskLicenseKey(sixteen).includes("ABCD"), "nothing before the last four is kept");
+    });
+
+    it("fully redacts a non-string value (fails closed)", () => {
+      // The License API's own response nests the key as license_key: { key },
+      // which is exactly what an unrecognized error body would carry.
+      assert.deepEqual(redactSecrets({ license_key: { key: KEY } }), { license_key: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ licenseKey: 1234567890123456 }), { licenseKey: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ licenseKey: null }), { licenseKey: "[REDACTED]" });
+      assert.deepEqual(redactSecrets({ licenseKey: [KEY] }), { licenseKey: "[REDACTED]" });
+      const out = JSON.stringify(redactSecrets({ license_key: { key: KEY } }));
+      assert.ok(!out.includes(KEY), "the nested key must not survive");
+    });
+
+    it("masks a license key nested inside objects and arrays", () => {
+      const masked = maskLicenseKey(KEY);
+      assert.deepEqual(redactSecrets({ meta: { licenseKey: KEY }, list: [{ license_key: KEY }] }), {
+        meta: { licenseKey: masked },
+        list: [{ license_key: masked }],
+      });
+    });
+
+    it("masks a shared-reference object in every position (memo path)", () => {
+      // The memo hands back one output node for a shared input node, so the
+      // second position is served from the cache. It must be the MASKED node.
+      const shared = { licenseKey: KEY, instanceId: "inst-1" };
+      const out = redactSecrets({ a: shared, b: shared, c: [shared] }) as {
+        a: unknown;
+        b: unknown;
+        c: unknown[];
+      };
+      const expected = { licenseKey: maskLicenseKey(KEY), instanceId: "inst-1" };
+      assert.deepEqual(out.a, expected);
+      assert.deepEqual(out.b, expected);
+      assert.deepEqual(out.c[0], expected);
+      assert.ok(!JSON.stringify(out).includes(KEY));
+    });
+
+    it("does not mutate the input", () => {
+      const input = { licenseKey: KEY };
+      redactSecrets(input);
+      assert.equal(input.licenseKey, KEY);
     });
   });
 
@@ -330,5 +424,45 @@ describe("redactSecrets", () => {
       assert.equal(result[0], 1);
       assert.equal(result[1], "[CIRCULAR]");
     });
+  });
+});
+
+describe("redact.js module graph", () => {
+  // api.ts imports redactSecrets for its unrecognized-error-body fallback, and
+  // wrapper.ts imports it for audit inputs. If anything redact.ts imports ever
+  // leads back to redact.ts, ESM hands one side a module whose bindings are
+  // not initialized yet -- and the side that loses is the redactor. This walks
+  // the compiled relative imports (type-only imports are erased by tsc, so
+  // they cannot form a runtime cycle) starting at redact.js and fails on any
+  // path back to it.
+  const distDir = dirname(fileURLToPath(import.meta.url));
+  const IMPORT_RE =
+    /(?:^|\n)\s*(?:import|export)\b[^;]*?\bfrom\s*["'](\.[^"']+)["']|(?:^|\n)\s*import\s*["'](\.[^"']+)["']/g;
+
+  function relativeImports(file: string): string[] {
+    const src = readFileSync(resolve(distDir, file), "utf-8");
+    return [...src.matchAll(IMPORT_RE)].map((m) =>
+      posix.normalize(posix.join(posix.dirname(file), m[1] ?? m[2] ?? "")),
+    );
+  }
+
+  it("the import scan sees api.js importing redact.js (the scan works)", () => {
+    // Guards the test below against passing vacuously on a regex that
+    // matches nothing.
+    assert.ok(relativeImports("api.js").includes("redact.js"), "api.js should import ./redact.js");
+  });
+
+  it("no module reachable from redact.js imports redact.js back", () => {
+    const seen = new Set<string>();
+    const stack: { file: string; path: string[] }[] = [{ file: "redact.js", path: ["redact.js"] }];
+    while (stack.length > 0) {
+      const { file, path } = stack.pop() as { file: string; path: string[] };
+      if (seen.has(file)) continue;
+      seen.add(file);
+      for (const target of relativeImports(file)) {
+        assert.notEqual(target, "redact.js", `import cycle: ${[...path, target].join(" -> ")}`);
+        stack.push({ file: target, path: [...path, target] });
+      }
+    }
   });
 });

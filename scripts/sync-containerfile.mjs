@@ -10,7 +10,8 @@
 //                                                   Containerfile would change
 //
 // Wired in via `npm run gen:containerfile` and `npm run check:containerfile`.
-// CI calls --check so a divergent Dockerfile/Containerfile edit fails review.
+// release.sh step 1 runs --check, so a release fails if the two have drifted;
+// nothing checks pull requests (this repo has no CI).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

@@ -191,11 +191,16 @@ export function createToolHandler<TInput = unknown>(
 
       const response = await tool.handler(input);
       const latency_ms = Date.now() - start;
-      // Inputs are logged ONLY for destructive calls. No destructive
-      // tool today accepts a secret-typed input (webhook secret tools
-      // are non-destructive), but redactSecrets() runs unconditionally
-      // as defense-in-depth -- if a tool with secret-bearing inputs is
-      // ever flipped to destructiveHint:true, the audit log won't leak.
+      // Inputs are logged ONLY for destructive calls, and always through
+      // redactSecrets(). Some destructive calls DO carry credentials:
+      // ls_update_webhook when it rotates `secret` (redacted by key name)
+      // and every ls_deactivate_license call, whose `licenseKey` is masked
+      // by name (see maskLicenseKey). For `inputs` the redactor is the single
+      // choke point for all three sinks (stderr, the audit ring, and the
+      // audit-log resource that serializes the ring) -- the catch branch
+      // below uses it too. The `error` field is NOT passed through it here:
+      // it is always a string built by api.ts, which only takes a string as
+      // the upstream message and otherwise redacts the body it falls back to.
       //
       // Hot-path note: the most common call is a non-destructive read at
       // LEMONSQUEEZY_LOG unset ("off"). Skip the entry literal in that case

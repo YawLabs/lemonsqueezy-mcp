@@ -13,12 +13,23 @@
 //      update, customer archive, discount/webhook delete, license-key
 //      disable, usage records -- route by their own resource ID and bypass
 //      the allowlist entirely.
+//   4. The License API tools (ls_activate_license, ls_validate_license,
+//      ls_deactivate_license) are outside BOTH boundaries. They have no
+//      storeId field and no requiredFilters, and `licenseRequest` in api.ts
+//      authenticates with the caller-supplied license key rather than the
+//      API key, so they act on any LemonSqueezy account's keys whichever API
+//      key the server holds. Their only controls are the class gates,
+//      LEMONSQUEEZY_DISABLE_CLASSES and LEMONSQUEEZY_RATE_LIMIT_PER_CLASS
+//      (activate/deactivate are `key`; validate is `read`, so gating it
+//      gates every other read-class tool too), and, for ls_deactivate_license,
+//      the destructive rate limit and audit log.
 //
 // Even with (1) and (2) in place, a caller scoping by a parent ID that
 // belongs to a non-allowed store will still get cross-store data back. The
-// LemonSqueezy API key's visibility is the true boundary. Pair this allowlist
-// with a least-privilege API key scoped to the same stores when the boundary
-// needs to be enforced rather than advisory.
+// LemonSqueezy API key's visibility is the true boundary for every tool but
+// the License API ones in (4). Pair this allowlist with a least-privilege API
+// key scoped to the same stores when the boundary needs to be enforced rather
+// than advisory.
 
 export class GuardrailError extends Error {
   constructor(message: string) {
@@ -53,17 +64,21 @@ export class ToolInputError extends Error {
 //
 //   read     -- safe reads (list/get) that don't return customer PII as their
 //               primary payload.
-//   pii      -- reads or writes of customer records. ls_get_order also returns
-//               customer fields incidentally, but its primary payload is the
-//               order; the pii class is reserved for tools whose primary
-//               purpose IS the customer record.
+//   pii      -- the dedicated customer-record tools (ls_*_customer(s)). It
+//               does NOT keep customer data out of reach: read-class tools
+//               still return customer names and emails incidentally (orders,
+//               subscriptions, license keys), and the order, subscription and
+//               license-key get/list tools accept include=customer, which
+//               side-loads the full customer record. The class is reserved
+//               for tools whose primary purpose IS the customer record.
 //   mutate   -- safe mutations: checkout creation, discount management,
-//               invoice generation, usage records. Non-money, non-recurring.
+//               invoice generation, marking sink events processed. Non-money,
+//               non-recurring.
 //   money    -- money movement (refunds). Irreversible at the payment layer.
-//   recurring -- subscription state (cancel, update billing item). Affects
-//               recurring revenue.
+//   recurring -- subscription state (cancel, update, update billing item,
+//               report metered usage). Affects recurring revenue.
 //   key      -- license-key admin (activate, deactivate, disable, change
-//               activation limit). Affects customer access surface.
+//               activation limit or expiry). Affects customer access surface.
 //   webhook  -- webhook config (create, update, delete). Affects the security
 //               surface other systems trust.
 export const AUTHORITY_CLASSES = ["read", "pii", "mutate", "money", "recurring", "key", "webhook"] as const;
@@ -291,8 +306,12 @@ type ToolForDestructiveCheck = {
  * Compute whether a specific call to a tool should be treated as destructive.
  * Most tools rely on the static `destructiveHint` annotation; tools whose
  * destructive-ness depends on the input (e.g. `ls_update_license_key` is
- * destructive only when `disabled: true`) can declare an `isDestructive`
- * predicate that overrides the static hint per call.
+ * destructive only for `disabled: true` or an `activationLimit` / `expiresAt`
+ * change) can declare an `isDestructive` predicate that overrides the static
+ * hint per call. When a predicate exists the static hint is never read here,
+ * so the predicate tools can carry `destructiveHint: true` for MCP clients
+ * (which only see the static annotation) while the server-side rate limit and
+ * audit log stay per-call.
  */
 export function isDestructiveCall(tool: ToolForDestructiveCheck, input: Record<string, unknown>): boolean {
   if (typeof tool.isDestructive === "function") return tool.isDestructive(input);
