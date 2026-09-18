@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-09-18
+
 **1.0.0 locks the public surface.** [SEMVER.md](./SEMVER.md) now spells out what that surface is: tool names and input fields, MCP annotations, the authority class names and each tool's class, which calls count as destructive, the documented env vars, the `lemonsqueezy://audit-log` resource, and the fields the server adds to responses. From here on its MAJOR / MINOR / PATCH rules apply strictly. `src/tools/tools.test.ts` pins the `destructiveHint: true` set, the `isDestructive`-predicate set, the `readOnlyHint: false` set and the full tool-to-class map, so a change to any of them fails `npm test` until it is made deliberately. The changes marked **Breaking** below were made now, before the lock, because each would need a major version afterwards. Tracked in #2.
 
 ### Changed
@@ -674,7 +676,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.2...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.2...v1.0.0
 [0.14.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.13.5...v0.14.0
