@@ -81,7 +81,7 @@ await esbuild.build({
   bundle: true,
   platform: 'node',
   format: 'cjs',
-  target: 'node20',
+  target: 'node22',
   // esbuild leaves import.meta.url EMPTY in cjs output, so a server that reads
   // it (e.g. createRequire(import.meta.url) to find package.json) crashes at
   // load with createRequire(undefined). Polyfill it to the carrier's own path

@@ -7,8 +7,9 @@
 // slug, license, description), so this script is copy-paste across @yawlabs/*
 // servers -- only the sibling-repo dirs are flags. Mirrors the Yaw Terminal
 // release.sh pattern: the manifest repos are checked out next to this one and
-// pushed with the gh_woods SSH key -- no CI cross-repo token. The binary BUILD
-// is CI (release.yml on tag push); this manifest BUMP runs locally after.
+// pushed with the gh_woods SSH key -- no CI cross-repo token. The binary build
+// is local too (this repo has no release workflow); this manifest BUMP runs
+// after it.
 //
 //   node scripts/update-manifests.mjs --version 0.60.6 \
 //     [--scoop-dir ~/yaw/scoop-yaw] [--homebrew-dir ~/yaw/homebrew-yaw] [--push]

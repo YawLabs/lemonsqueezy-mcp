@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ---------- Stage 1: builder ----------
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /build
 
@@ -18,7 +18,7 @@ COPY src ./src
 RUN npm run build
 
 # ---------- Stage 2: runtime ----------
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 
 WORKDIR /app
 
@@ -26,7 +26,7 @@ WORKDIR /app
 # don't need node_modules in the final image.
 COPY --from=builder /build/dist/index.js /app/dist/index.js
 
-# Drop privileges. The `node` user ships with node:20-alpine.
+# Drop privileges. The `node` user ships with node:22-alpine.
 USER node
 
 # stdio MCP server -- no port to EXPOSE.
