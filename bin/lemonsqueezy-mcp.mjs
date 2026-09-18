@@ -85,9 +85,9 @@
  *
  * LEMONSQUEEZY_SINK_URL is operator-configured, so its host is parsed out and
  * added to the grant when set rather than assumed. Child-process stays denied
- * UNLESS LEMONSQUEEZY_API_KEY_COMMAND is configured -- that feature shells out
- * to fetch the key, so the grant is tied to the feature instead of handed over
- * unconditionally.
+ * UNLESS LEMONSQUEEZY_API_KEY_COMMAND is configured -- that feature runs the
+ * key command as a child process (execFile, no shell), so the grant is tied to
+ * the feature instead of handed over unconditionally.
  *
  * Opt-in, not default, because a wrong grant does not fail loudly. oam denies a
  * non-granted environment variable by making it ABSENT from process.env rather
@@ -96,15 +96,17 @@
  * shipped bundle actually reads -- keep it in step with the bundle.
  *
  * MINIMUM OAM VERSION
- * The latest oam release, 0.15.2 -- bump OAM_MIN when oam ships a newer one.
- * Only the current oam is used and verified; an older one is never served on.
- * The floor is not cosmetic: before 0.9.0 `child_process.execFile` ran its
- * arguments through a SHELL, `exec` accepted `timeout` and ignored it,
+ * OAM_MIN, 0.15.2, is a floor: the oam this server was last verified on, not
+ * a claim that it is the newest oam. Raise it once a newer oam has been
+ * re-verified here (handshake and all 64 tools through this launcher). The
+ * server only runs on an oam at or above the floor; an older one is never
+ * served on. The floor is not cosmetic: before 0.9.0 `child_process.execFile`
+ * ran its arguments through a SHELL, `exec` accepted `timeout` and ignored it,
  * `spawnSync` truncated at `maxBuffer` while reporting success, and
- * `stdio: 'inherit'`/`'ignore'` both behaved as `'pipe'`. This server shells
- * out only when LEMONSQUEEZY_API_KEY_COMMAND is configured, so the execFile bug
- * was reachable on exactly that path -- the command's arguments were re-split
- * by a shell.
+ * `stdio: 'inherit'`/`'ignore'` both behaved as `'pipe'`. This server starts a
+ * child process only when LEMONSQUEEZY_API_KEY_COMMAND is configured (execFile,
+ * deliberately without a shell), so the execFile bug was reachable on exactly
+ * that path -- the command's arguments were re-split by a shell anyway.
  *
  * SELECTION
  *   LEMONSQUEEZY_MCP_RUNTIME=auto   newest usable oam, else Node (default)
