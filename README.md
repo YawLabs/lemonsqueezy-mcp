@@ -401,7 +401,7 @@ It then runs eight steps on the workstation:
 4. Turn `## [Unreleased]` in `CHANGELOG.md` into `## [X.Y.Z]` (when `[Unreleased]` is empty, write that section from the commit subjects since the previous tag instead, with a warning), commit, create the annotated tag `vX.Y.Z`, and push `main` with the tag
 5. `npm publish --access public`
 6. Create the GitHub release, with the notes taken from the `## [X.Y.Z]` section of `CHANGELOG.md`
-7. Wait for npm to serve the new version (up to 5 minutes, then carry on with a warning), smoke-test `npx -y @yawlabs/lemonsqueezy-mcp@X.Y.Z --version`, then publish `server.json` to the [Official MCP Registry](https://registry.modelcontextprotocol.io) with `mcp-publisher`
+7. Wait for npm to serve the new version (up to 10 minutes, then carry on with a warning), smoke-test `npx -y @yawlabs/lemonsqueezy-mcp@X.Y.Z --version` (up to 60 attempts 10 seconds apart), then publish `server.json` to the [Official MCP Registry](https://registry.modelcontextprotocol.io) with `mcp-publisher`
 8. Verify the npm version, `package.json` and the tag
 
 Re-running after a partial failure is safe. `./release.sh X.Y.Z` detects the version bump, commit, tag, npm publish and GitHub release that already landed and skips them; lint, test, the push and the npx smoke test run again. The MCP Registry publish in step 7 is not skipped, so a re-run after it has succeeded fails there on the duplicate version.
