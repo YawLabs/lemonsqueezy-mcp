@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`release.sh` reads npm's per-version document and retries the MCP Registry publish.** The "is this version on npm?" checks (the pre-flight token gate, step 5's already-published skip and the step 8 check) now ask `https://registry.npmjs.org/@yawlabs%2Flemonsqueezy-mcp/<version>` with `curl` instead of `npm view`, whose whole-package document Cloudflare's edge can serve stale for up to 5 minutes after a publish. The step 7 propagation wait already curled that URL; it now goes through the same check, so each request is capped at 20 s and only a 200 counts. Step 5 treats npm's E403 "cannot publish over the previously published versions" as already published rather than as a token error, so re-running straight after a failed later step no longer dies there. Step 7 makes up to 4 attempts at `mcp-publisher publish`, 30, 60 and 90 s apart, but only when the registry says it cannot see the version on npm yet or calls the failure transient; a duplicate version counts as done, and any other failure still stops at once.
+
 ## [1.0.0] — 2026-09-18
 
 **1.0.0 locks the public surface.** [SEMVER.md](./SEMVER.md) now spells out what that surface is: tool names and input fields, MCP annotations, the authority class names and each tool's class, which calls count as destructive, the documented env vars, the `lemonsqueezy://audit-log` resource, and the fields the server adds to responses. From here on its MAJOR / MINOR / PATCH rules apply strictly. `src/tools/tools.test.ts` pins the `destructiveHint: true` set, the `isDestructive`-predicate set, the `readOnlyHint: false` set and the full tool-to-class map, so a change to any of them fails `npm test` until it is made deliberately. The changes marked **Breaking** below were made now, before the lock, because each would need a major version afterwards. Tracked in #2.
