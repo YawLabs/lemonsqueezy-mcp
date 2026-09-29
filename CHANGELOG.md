@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-09-29
+
 ### Changed
 
 - **`release.sh` reads npm's per-version document and retries the MCP Registry publish.** The "is this version on npm?" checks (the pre-flight token gate, step 5's already-published skip and the step 8 check) now ask `https://registry.npmjs.org/@yawlabs%2Flemonsqueezy-mcp/<version>` with `curl` instead of `npm view`, whose whole-package document Cloudflare's edge can serve stale for up to 5 minutes after a publish. The step 7 propagation wait already curled that URL; it now goes through the same check, so each request is capped at 20 s and only a 200 counts. Step 5 treats npm's E403 "cannot publish over the previously published versions" as already published rather than as a token error, so re-running straight after a failed later step no longer dies there. Step 7 makes up to 4 attempts at `mcp-publisher publish`, 30, 60 and 90 s apart, but only when the registry says it cannot see the version on npm yet, calls the failure transient, or answers HTTP 429, 502, 503 or 504 itself (with a fresh registry login before each retry); a duplicate version counts as done, and any other failure still stops at once.
@@ -683,7 +685,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.2...v1.0.0
 [0.14.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.0...v0.14.1
