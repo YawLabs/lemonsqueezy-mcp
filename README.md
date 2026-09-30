@@ -418,7 +418,7 @@ One-time setup on each machine:
   ```
 
   **Never run `npm login --auth-type=web`.** It overwrites the automation token with a 2FA-bound web session, and the next publish fails with `EOTP`.
-- **`gh auth login`.** The pre-flight requires it, and step 6 creates the release with it. Step 7 logs `mcp-publisher` in with its token (`gh auth token`) unless `MCP_REGISTRY_TOKEN` is set; either way the token needs `read:org` access to YawLabs, which the registry checks for the `io.github.YawLabs/*` namespace. `mcp-publisher` is downloaded to `~/.local/bin` on first use; set `MCP_PUBLISHER` to use another copy.
+- **`gh auth login`.** The pre-flight requires it, and step 6 creates the release with it. Step 7 logs `mcp-publisher` in with its token (`gh auth token`) unless `MCP_REGISTRY_TOKEN` is set; either way the registry grants the `io.github.YawLabs/*` namespace only to a YawLabs org Owner whose token can read org roles (`read:org` does; so do `repo`, `user`, `write:org` and `admin:org`). It reads the role at login but refuses only at publish, so a token that cannot read it still logs in and the publish gets a 403. `mcp-publisher` is downloaded to `~/.local/bin` on first use; set `MCP_PUBLISHER` to use another copy.
 - **`jq`, `curl` and `tar` on `PATH`.** Step 3 edits `server.json` with `jq`. Step 7 downloads `mcp-publisher` with `curl` and `tar` on first use, unless `MCP_PUBLISHER` points at an existing copy. It also polls npm with `curl`, and skips that wait with a warning if `curl` is missing.
 - **Rights to push to `main` and create `v*` tags.** The repository rulesets require a pull request for `main` and restrict `v*` tag creation, only organization admins bypass them, and step 4 pushes both directly.
 
