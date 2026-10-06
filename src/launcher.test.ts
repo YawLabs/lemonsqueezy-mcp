@@ -84,11 +84,11 @@ describe("launcher runtimePlan()", () => {
     // asking what it was already running on. `auto` and `oam` both have to take
     // the shortcut -- `oam` demands oam, and the host already is one.
     //
-    // 0.15.2 pins the floor as inclusive (it IS the supported release), and
-    // 0.100.0 pins a numeric compare: it sorts BEFORE 0.15.2 as a string, so a
+    // 0.18.0 pins the floor as inclusive (it IS the supported release), and
+    // 0.100.0 pins a numeric compare: it sorts BEFORE 0.18.0 as a string, so a
     // compare over the raw text would treat a newer oam as too old.
     for (const mode of ["auto", "oam"]) {
-      for (const hostOam of ["0.15.2", "0.16.0", "0.100.0", "1.0.0", "0.16.0-dev"]) {
+      for (const hostOam of ["0.18.0", "0.19.0", "0.100.0", "1.0.0", "0.19.0-dev"]) {
         assert.equal(runtimePlan({ mode, hostOam, sandbox: false }), "in-process", `mode=${mode} hostOam=${hostOam}`);
       }
     }
@@ -99,7 +99,7 @@ describe("launcher runtimePlan()", () => {
     // Serving in-process here would silently drop the sandbox the user asked
     // for -- a security downgrade that no other symptom would reveal.
     for (const mode of ["auto", "oam"]) {
-      for (const hostOam of ["0.15.2", "1.0.0"]) {
+      for (const hostOam of ["0.18.0", "1.0.0"]) {
         assert.equal(runtimePlan({ mode, hostOam, sandbox: true }), "discover", `mode=${mode} hostOam=${hostOam}`);
       }
     }
@@ -111,7 +111,7 @@ describe("launcher runtimePlan()", () => {
     // and anything older than the floor is not what the server is verified on.
     for (const mode of ["auto", "oam"]) {
       for (const sandbox of [false, true]) {
-        for (const hostOam of ["0.15.1", "0.9.0", "0.8.2", "0.0.1"]) {
+        for (const hostOam of ["0.17.0", "0.15.2", "0.9.0", "0.8.2", "0.0.1"]) {
           assert.equal(
             runtimePlan({ mode, hostOam, sandbox }),
             "discover",
@@ -135,7 +135,7 @@ describe("launcher runtimePlan()", () => {
   it("runs LEMONSQUEEZY_MCP_RUNTIME=node on Node: in-process on a Node host, handed off from any oam host", () => {
     for (const sandbox of [false, true]) {
       assert.equal(runtimePlan({ mode: "node", hostOam: undefined, sandbox }), "in-process", `sandbox=${sandbox}`);
-      for (const hostOam of ["0.8.2", "0.15.2", "1.0.0", "dev"]) {
+      for (const hostOam of ["0.8.2", "0.18.0", "1.0.0", "dev"]) {
         assert.equal(
           runtimePlan({ mode: "node", hostOam, sandbox }),
           "handoff-node",
@@ -150,26 +150,26 @@ describe("launcher pickNewest()", () => {
   const { pickNewest, floor } = loadPickNewest();
   const at = (path: string, version: number[] | null): Candidate => ({ path, version });
 
-  it("pins the floor at oam 0.15.2", () => {
-    assert.deepEqual(floor, [0, 15, 2]);
+  it("pins the floor at oam 0.18.0", () => {
+    assert.deepEqual(floor, [0, 18, 0]);
   });
 
   it("takes the newest usable oam, not the first one found", () => {
     // The bug: discovery stopped at the first binary that existed, so an older
     // copy in an earlier location (the installed dir is searched before PATH)
     // hid a newer one later.
-    const chosen = pickNewest([at("installed", [0, 15, 2]), at("path-a", [0, 16, 0]), at("path-b", [0, 15, 9])]);
+    const chosen = pickNewest([at("installed", [0, 18, 0]), at("path-a", [0, 19, 0]), at("path-b", [0, 18, 9])]);
     assert.equal(chosen?.path, "path-a");
   });
 
   it("compares numerically and keeps search order on a tie", () => {
-    assert.equal(pickNewest([at("a", [0, 16, 0]), at("b", [0, 100, 0])])?.path, "b");
-    assert.equal(pickNewest([at("first", [0, 15, 2]), at("second", [0, 15, 2])])?.path, "first");
+    assert.equal(pickNewest([at("a", [0, 19, 0]), at("b", [0, 100, 0])])?.path, "b");
+    assert.equal(pickNewest([at("first", [0, 18, 0]), at("second", [0, 18, 0])])?.path, "first");
   });
 
   it("skips binaries below the floor or with no readable version", () => {
-    assert.equal(pickNewest([at("old", [0, 9, 0]), at("broken", null), at("good", [0, 15, 2])])?.path, "good");
-    assert.equal(pickNewest([at("old", [0, 15, 1]), at("broken", null)]), null);
+    assert.equal(pickNewest([at("old", [0, 9, 0]), at("broken", null), at("good", [0, 18, 0])])?.path, "good");
+    assert.equal(pickNewest([at("old", [0, 17, 0]), at("broken", null)]), null);
     assert.equal(pickNewest([]), null);
   });
 });
@@ -341,13 +341,13 @@ describe("launcher on an oam host", () => {
   it("serves in-process instead of spawning a nested oam", async () => {
     const envs: Record<string, string>[] = [{}, { LEMONSQUEEZY_MCP_RUNTIME: "oam" }];
     for (const extraEnv of envs) {
-      const run = await runLauncher("0.15.2", extraEnv);
+      const run = await runLauncher("0.18.0", extraEnv);
       assert.equal(servedInProcess(run), true, `${JSON.stringify(extraEnv)} -> ${JSON.stringify(run)}`);
     }
   });
 
   it("still spawns under LEMONSQUEEZY_MCP_SANDBOX=1, so --permission is not dropped", async () => {
-    const run = await runLauncher("0.15.2", { LEMONSQUEEZY_MCP_SANDBOX: "1" });
+    const run = await runLauncher("0.18.0", { LEMONSQUEEZY_MCP_SANDBOX: "1" });
     assert.equal(servedInProcess(run), false, `the sandbox must force a spawn, got ${JSON.stringify(run)}`);
     assert.notEqual(run.code, 0);
     // A spawned child failing, not the launcher diagnosing: every launcher
@@ -356,7 +356,7 @@ describe("launcher on an oam host", () => {
   });
 
   it("still discovers when the host oam is below the floor", async () => {
-    const run = await runLauncher("0.15.1");
+    const run = await runLauncher("0.17.0");
     assert.equal(servedInProcess(run), false, `a below-floor host must not shortcut, got ${JSON.stringify(run)}`);
     assert.notEqual(run.code, 0);
     assert.doesNotMatch(run.stderr, /^lemonsqueezy-mcp: /m);
@@ -427,7 +427,7 @@ describe("launcher with no usable oam", () => {
     assert.equal(run.stdout.trim(), PKG_VERSION, "the Node child must still serve");
     assert.match(
       run.stderr,
-      /this process is oam 0\.9\.0, older than 0\.15\.2, and no newer oam was found; running on .*node/,
+      /this process is oam 0\.9\.0, older than 0\.18\.0, and no newer oam was found; running on .*node/,
     );
     // Served by the child, not in the launcher process: argv[1] was never
     // pointed at dist/index.js.
@@ -450,7 +450,7 @@ describe("launcher with no usable oam", () => {
   });
 
   it("hands LEMONSQUEEZY_MCP_RUNTIME=node off to Node even on a supported oam host", async () => {
-    const run = await runLauncher("0.15.2", isolated({ LEMONSQUEEZY_MCP_RUNTIME: "node" }));
+    const run = await runLauncher("0.18.0", isolated({ LEMONSQUEEZY_MCP_RUNTIME: "node" }));
     assert.equal(run.code, 0, JSON.stringify(run));
     assert.equal(run.stdout.trim(), PKG_VERSION);
     assert.match(run.stderr, /LAUNCHER_ARGV1=.*lemonsqueezy-mcp\.mjs/);
@@ -460,22 +460,22 @@ describe("launcher with no usable oam", () => {
     // The sandbox is a preference for a fresh oam, not a guarantee of one: under
     // auto, a supported host with nothing to spawn still serves, as it always
     // has. The OAM_BIN note says why no fresh oam was used.
-    const run = await runLauncher("0.15.2", isolated({ LEMONSQUEEZY_MCP_SANDBOX: "1" }));
+    const run = await runLauncher("0.18.0", isolated({ LEMONSQUEEZY_MCP_SANDBOX: "1" }));
     assert.equal(servedInProcess(run), true, JSON.stringify(run));
     assert.match(
       run.stderr,
-      /^lemonsqueezy-mcp: OAM_BIN=.*does not exist; serving on this oam 0\.15\.2 without --permission\.$/m,
+      /^lemonsqueezy-mcp: OAM_BIN=.*does not exist; serving on this oam 0\.18\.0 without --permission\.$/m,
     );
   });
 
   it("exits instead under LEMONSQUEEZY_MCP_RUNTIME=oam when the sandbox has no fresh oam", async () => {
     const run = await runLauncher(
-      "0.15.2",
+      "0.18.0",
       isolated({ LEMONSQUEEZY_MCP_SANDBOX: "1", LEMONSQUEEZY_MCP_RUNTIME: "oam" }),
     );
     assert.equal(run.code, 1, JSON.stringify(run));
     assert.equal(run.stdout.trim(), "", "nothing may be served");
-    assert.match(run.stderr, /LEMONSQUEEZY_MCP_RUNTIME=oam but no usable oam \(0\.15\.2 or newer\) was found/);
+    assert.match(run.stderr, /LEMONSQUEEZY_MCP_RUNTIME=oam but no usable oam \(0\.18\.0 or newer\) was found/);
   });
 
   it("still falls back when the chosen oam fails to spawn on an oam host", async () => {
@@ -486,7 +486,7 @@ describe("launcher with no usable oam", () => {
     assert.equal(run.stdout.trim(), PKG_VERSION, "the Node fallback must still serve");
     assert.match(
       run.stderr,
-      /^lemonsqueezy-mcp: failed to launch oam at .*; this process is oam 0\.9\.0, older than 0\.15\.2; running on .*node.* instead\.$/m,
+      /^lemonsqueezy-mcp: failed to launch oam at .*; this process is oam 0\.9\.0, older than 0\.18\.0; running on .*node.* instead\.$/m,
     );
     // A newer oam WAS found -- it is the one that failed to launch.
     assert.doesNotMatch(run.stderr, /no newer oam was found/);
@@ -500,7 +500,7 @@ describe("launcher with no usable oam", () => {
     // failed child's 'close' used to exit the launcher with the negative errno
     // underneath the server it had just started.
     const run = await runLauncherLive(
-      "0.15.2",
+      "0.18.0",
       isolated({ LEMONSQUEEZY_MCP_SANDBOX: "1", OAM_BIN: process.execPath }),
       failFirstSpawn,
       new RegExp(FAILED_SPAWN_CLOSED),
@@ -514,7 +514,7 @@ describe("launcher with no usable oam", () => {
     assert.match(run.stderr, /LAUNCHER_ARGV1=.*dist[\\/]index\.js/, "served in-process, not by a child");
     assert.match(
       run.stderr,
-      /^lemonsqueezy-mcp: failed to launch oam at .*; serving on this oam 0\.15\.2 without --permission\.$/m,
+      /^lemonsqueezy-mcp: failed to launch oam at .*; serving on this oam 0\.18\.0 without --permission\.$/m,
     );
   });
 });
@@ -578,13 +578,13 @@ describe("launcher wiring", () => {
     const run = await runLauncher(
       undefined,
       isolated({ USERPROFILE: home, HOME: home, LOCALAPPDATA: home, PATH: onPath }),
-      `${fakeOamVersions({ "launcher-installed-": "0.15.2", "launcher-onpath-": "0.16.0" })}\n${failFirstSpawn}`,
+      `${fakeOamVersions({ "launcher-installed-": "0.18.0", "launcher-onpath-": "0.19.0" })}\n${failFirstSpawn}`,
     );
     assert.equal(servedInProcess(run), true, JSON.stringify(run));
     // The OAM_BIN note names the oam chosen in its place, with its version.
     assert.match(
       run.stderr,
-      /^lemonsqueezy-mcp: OAM_BIN=.* does not exist; using .*launcher-onpath-.* \(oam 0\.16\.0\)\.$/m,
+      /^lemonsqueezy-mcp: OAM_BIN=.* does not exist; using .*launcher-onpath-.* \(oam 0\.19\.0\)\.$/m,
     );
     assert.match(run.stderr, /^lemonsqueezy-mcp: failed to launch oam at .*launcher-onpath-.*; using Node instead\.$/m);
   });

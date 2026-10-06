@@ -96,7 +96,7 @@
  * shipped bundle actually reads -- keep it in step with the bundle.
  *
  * MINIMUM OAM VERSION
- * OAM_MIN, 0.15.2, is a floor: the oam this server was last verified on, not
+ * OAM_MIN, 0.18.0, is a floor: the oam this server was last verified on, not
  * a claim that it is the newest oam. Raise it once a newer oam has been
  * re-verified here (handshake and all 64 tools through this launcher). The
  * server only runs on an oam at or above the floor; an older one is never
@@ -128,7 +128,7 @@ import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Oldest oam this server is served on. See MINIMUM OAM VERSION above. */
-const OAM_MIN = [0, 15, 2];
+const OAM_MIN = [0, 18, 0];
 
 /**
  * Bound on each `oam --version` probe. A healthy oam answers in milliseconds;
