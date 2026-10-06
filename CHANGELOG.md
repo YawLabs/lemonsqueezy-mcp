@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.2] — 2026-10-06
+
 ### Security
 - **The bundled MCP SDK moves from 1.30.0 to 1.32.1** (GHSA-6qxp-vccf-f47h, high: the SDK's OAuth client could send credentials to an authorization server chosen by the MCP server; this server does not import that client, but the bundled SDK version changes). esbuild bundles the SDK into `dist/index.js`, so the dependency floor is now `^1.32.1`. Its `fast-uri`, also bundled through ajv, moves from 3.1.7 to 3.1.8 (GHSA-hrr3-gc8f-f4qj, moderate: inconsistent host case normalization via percent-encoded octets). Development-scope only: `proxy-addr` 2.0.8 (GHSA-jqcg-44mw-7w3h, critical) and `ip-address` 10.7.3 (GHSA-j6r3-76f7-8jcv, GHSA-h3mg-xc3c-68pw), which reach the tree through the SDK's Express transport but are not in the bundle. The existing `hono` override is unchanged. `npm audit` reports 0 vulnerabilities.
 
@@ -696,7 +698,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.2...v1.0.0
 [0.14.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.1...v0.14.2
