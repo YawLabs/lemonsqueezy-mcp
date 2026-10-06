@@ -63,7 +63,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@types/node": "^26.1.1",
     "esbuild": "^0.28.1",
     "postject": "^1.0.0-alpha.6",
