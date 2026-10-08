@@ -31,10 +31,47 @@ export function parseRetryAfterMs(header: string | null): number {
   return DEFAULT_RETRY_WAIT_MS;
 }
 
+/**
+ * The runtime fetch's own timeouts, as undici codes them on `err.cause`.
+ *
+ * A connect, headers or body timeout inside fetch does not reject with a
+ * TimeoutError: it rejects with `TypeError: fetch failed` and puts the detail
+ * in `err.cause.code`. Node 22's undici does this, and so does oam from 0.18.0,
+ * which added a 10 s connect timeout (UND_ERR_CONNECT_TIMEOUT) and honours
+ * headersTimeout / bodyTimeout. The message text is not stable across
+ * runtimes; the code is, so classification goes by the code.
+ */
+const UNDICI_TIMEOUT_CODES = new Set(["UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
+
+/** `err.cause.code` when it is a string (an undici or system error code), else undefined. */
+export function causeCode(err: unknown): string | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const cause = (err as { cause?: unknown }).cause;
+  if (!cause || typeof cause !== "object") return undefined;
+  const code = (cause as { code?: unknown }).code;
+  return typeof code === "string" && code !== "" ? code : undefined;
+}
+
+/** True when `err` is one of the runtime fetch's coded timeouts (see UNDICI_TIMEOUT_CODES). */
+export function isFetchTimeoutCause(err: unknown): boolean {
+  const code = causeCode(err);
+  return code !== undefined && UNDICI_TIMEOUT_CODES.has(code);
+}
+
+/**
+ * A network failure's message with its cause code appended -- `fetch failed
+ * (ECONNREFUSED)` -- so "fetch failed" alone never reaches a log or a caller.
+ */
+export function describeNetworkError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const code = causeCode(err);
+  return code && !message.includes(code) ? `${message} (${code})` : message;
+}
+
 export function isAbortTimeoutError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as { name?: unknown; code?: unknown };
-  return e.name === "TimeoutError" || e.name === "AbortError" || e.code === "ABORT_ERR";
+  return e.name === "TimeoutError" || e.name === "AbortError" || e.code === "ABORT_ERR" || isFetchTimeoutCause(err);
 }
 
 /**

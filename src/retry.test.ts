@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   backoffDelay,
+  causeCode,
+  describeNetworkError,
   fetchWithRetry,
   isAbortTimeoutError,
   isRetryTimeoutError,
@@ -90,6 +92,36 @@ describe("isAbortTimeoutError", () => {
     assert.equal(isAbortTimeoutError(null), false);
     assert.equal(isAbortTimeoutError(undefined), false);
     assert.equal(isAbortTimeoutError("err"), false);
+  });
+  // The runtime fetch's own timeouts reject as `TypeError: fetch failed` with
+  // the undici code on err.cause -- Node 22's undici, and oam from 0.18.0 (its
+  // 10 s connect timeout). The message never says "timeout".
+  for (const code of ["UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]) {
+    it(`detects a fetch failed whose cause is ${code}`, () => {
+      assert.ok(isAbortTimeoutError(new TypeError("fetch failed", { cause: { code } })));
+    });
+  }
+  it("does not treat other coded causes as timeouts", () => {
+    assert.equal(isAbortTimeoutError(new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } })), false);
+    assert.equal(isAbortTimeoutError(new TypeError("fetch failed", { cause: { code: "UND_ERR_SOCKET" } })), false);
+  });
+});
+
+describe("causeCode / describeNetworkError", () => {
+  it("reads a string code off err.cause", () => {
+    assert.equal(causeCode(new TypeError("fetch failed", { cause: { code: "ECONNRESET" } })), "ECONNRESET");
+    assert.equal(causeCode(new TypeError("fetch failed")), undefined);
+    assert.equal(causeCode(new TypeError("fetch failed", { cause: { code: 7 } })), undefined);
+    assert.equal(causeCode(null), undefined);
+  });
+  it("appends the cause code to the message", () => {
+    const err = new TypeError("fetch failed", { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } });
+    assert.equal(describeNetworkError(err), "fetch failed (UND_ERR_CONNECT_TIMEOUT)");
+  });
+  it("leaves a message alone when there is no code, or it already names it", () => {
+    assert.equal(describeNetworkError(new TypeError("fetch failed")), "fetch failed");
+    const named = new Error("connect ECONNREFUSED 127.0.0.1:1", { cause: { code: "ECONNREFUSED" } });
+    assert.equal(describeNetworkError(named), "connect ECONNREFUSED 127.0.0.1:1");
   });
 });
 
@@ -250,6 +282,33 @@ describe("fetchWithRetry", () => {
       fetchWithRetry("https://x", { method: "POST" }, { idempotent: false, fetchImpl: fn, sleep: sleep.fn }),
     );
     assert.equal(calls.length, 1);
+  });
+
+  it("reports a connect timeout on a non-idempotent request as a timeout, without retry", async () => {
+    // Before, a POST (a refund) that hit the runtime's connect timeout was
+    // rethrown as a bare "fetch failed" network error, while an AbortSignal
+    // timeout on the same call came back as a timeout. Both are timeouts now.
+    const connectTimeout = new TypeError("fetch failed", { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } });
+    const { fn, calls } = fakeFetch([connectTimeout]);
+    const sleep = fakeSleep();
+    await assert.rejects(
+      fetchWithRetry("https://x", { method: "POST" }, { idempotent: false, fetchImpl: fn, sleep: sleep.fn }),
+      (err: unknown) => isRetryTimeoutError(err) && err.attempts === 1,
+    );
+    assert.equal(calls.length, 1);
+  });
+
+  it("retries a connect timeout on an idempotent request", async () => {
+    const connectTimeout = new TypeError("fetch failed", { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } });
+    const { fn, calls } = fakeFetch([connectTimeout, ok()]);
+    const sleep = fakeSleep();
+    const res = await fetchWithRetry(
+      "https://x",
+      { method: "GET" },
+      { idempotent: true, fetchImpl: fn, sleep: sleep.fn, rand: () => 0 },
+    );
+    assert.equal(res.status, 200);
+    assert.equal(calls.length, 2);
   });
 
   it("retries network TypeError on idempotent", async () => {

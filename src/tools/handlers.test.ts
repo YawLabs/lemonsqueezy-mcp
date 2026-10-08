@@ -1253,6 +1253,29 @@ describe("Error handling", () => {
     await assert.rejects(() => tool.handler({ storeId: "1" }), /fetch failed/);
   });
 
+  it("names the cause code of a rethrown fetch error", async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } });
+    }) as typeof fetch;
+
+    const tool = findTool(storeTools, "ls_get_store");
+    await assert.rejects(() => tool.handler({ storeId: "1" }), /^TypeError: fetch failed \(ECONNREFUSED\)$/);
+  });
+
+  it("returns a runtime connect timeout as a timeout, not a thrown network error", async () => {
+    // TypeError("fetch failed") with UND_ERR_CONNECT_TIMEOUT on its cause is
+    // what the runtime's 10 s connect timeout rejects with.
+    globalThis.fetch = (async () => {
+      throw new TypeError("fetch failed", { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } });
+    }) as typeof fetch;
+
+    const tool = findTool(storeTools, "ls_get_store");
+    const result = (await tool.handler({ storeId: "1" })) as AnyBody;
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 0);
+    assert.ok(result.error.includes("timed out"));
+  });
+
   it("handles 500 server error with JSON body", async () => {
     globalThis.fetch = (async () => {
       return new Response('{"errors":[{"detail":"Internal server error"}]}', { status: 500 });
