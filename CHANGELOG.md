@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-10-09
+
 ### Fixed
 - **`LEMONSQUEEZY_API_KEY_COMMAND` works on oam.** The key command was run through `util.promisify(execFile)`, which on Node resolves with `{ stdout, stderr }` and on oam 0.18.0 resolves with the stdout string alone, so on oam every key command failed with `Cannot read properties of undefined (reading 'trim')`. `src/secret.ts` now wraps execFile's callback form, which behaves the same on both. Node was never affected.
 - **The sandbox no longer starves the key command of its environment.** From oam 0.18.0 a child started without an explicit environment gets only the variables `--allow-env` grants, and on Windows even `SYSTEMROOT`, `TEMP` and `USERPROFILE` are filtered the same way, so under `LEMONSQUEEZY_MCP_SANDBOX=1` a key command saw only `PATH` and the `LEMONSQUEEZY_*` variables: measured on oam 0.18.0, `powershell -NoProfile -Command ...` died with "Internal Windows PowerShell error". When `LEMONSQUEEZY_API_KEY_COMMAND` is set the grant now also names `APPDATA`, `HOME`, `HOMEDRIVE`, `HOMEPATH`, `LANG`, `LOCALAPPDATA`, `SYSTEMDRIVE`, `SYSTEMROOT`, `TEMP`, `TMP`, `TMPDIR`, `USERPROFILE` and `WINDIR`. Re-verified on oam 0.18.0 (windows-arm64) through the launcher with `LEMONSQUEEZY_MCP_SANDBOX=1 LEMONSQUEEZY_MCP_RUNTIME=oam`: `powershell`, `cmd /c` and `sh -c` key commands all returned a key and the API answered on 443. Without the key command the grant is unchanged.
@@ -718,7 +720,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v0.14.2...v1.0.0
