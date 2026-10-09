@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { logEvent } from "./logger.js";
 import { redactSecrets } from "./redact.js";
-import { fetchWithRetry, isAbortTimeoutError, isRetryTimeoutError } from "./retry.js";
+import { describeNetworkError, fetchWithRetry, isAbortTimeoutError, isRetryTimeoutError } from "./retry.js";
 import { invalidateApiKeyCache, loadApiKey } from "./secret.js";
 
 const BASE_URL = "https://api.lemonsqueezy.com/v1";
@@ -239,6 +239,20 @@ function formatTimeoutMessage(err: unknown, fallbackElapsedMs: number): string {
   return `Request timed out after ${seconds}s (${plural(1)})`;
 }
 
+/**
+ * The error to rethrow for a network failure: `err` itself when its message
+ * already says everything, otherwise an Error of the same name carrying the
+ * cause code (`fetch failed (ECONNREFUSED)`), with the original as its
+ * `cause`. The wrapper renders a thrown error's message, so this is what puts
+ * the code in front of the agent instead of a bare "fetch failed".
+ */
+function withNetworkDetail(err: unknown, message: string): unknown {
+  if (!(err instanceof Error) || err.message === message) return err;
+  const detailed = new Error(message, { cause: err });
+  detailed.name = err.name;
+  return detailed;
+}
+
 async function apiRequest<T = unknown>(method: string, path: string, body?: unknown): Promise<ApiResponse<T>> {
   const start = Date.now();
   const apiKey = await loadApiKey();
@@ -280,9 +294,9 @@ async function apiRequest<T = unknown>(method: string, path: string, body?: unkn
       logEvent({ event: "http_call", method, path, status: "timeout", latency_ms, error });
       return { ok: false, status: 0, error };
     }
-    const message = err instanceof Error ? err.message : String(err);
+    const message = describeNetworkError(err);
     logEvent({ event: "http_call", method, path, status: "network_error", latency_ms, error: message });
-    throw err;
+    throw withNetworkDetail(err, message);
   }
 
   const latency_ms = Date.now() - start;
@@ -345,7 +359,7 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
       logEvent({ event: "http_call", method: "POST", path, status: "timeout", latency_ms, error });
       return { ok: false, status: 0, error };
     }
-    const message = err instanceof Error ? err.message : String(err);
+    const message = describeNetworkError(err);
     logEvent({
       event: "http_call",
       method: "POST",
@@ -354,7 +368,7 @@ export async function licenseRequest<T = unknown>(path: string, body: Record<str
       latency_ms,
       error: message,
     });
-    throw err;
+    throw withNetworkDetail(err, message);
   }
 
   const latency_ms = Date.now() - start;

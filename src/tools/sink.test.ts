@@ -263,6 +263,26 @@ describe("Sink tools error paths", () => {
     assert.match(result.error ?? "", /fetch failed/);
   });
 
+  it("network failure names the cause code", async () => {
+    stubFetch({ throwError: new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } }) });
+    const tool = findTool("ls_sink_stats");
+    const result = await tool.handler({});
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /^Sink unreachable: fetch failed \(ECONNREFUSED\) /);
+  });
+
+  it("a runtime connect timeout (coded cause, no 'timeout' in the message) surfaces as a timeout", async () => {
+    // The runtime fetch's 10 s connect timeout rejects as `TypeError: fetch
+    // failed` with UND_ERR_CONNECT_TIMEOUT on err.cause; it used to read as
+    // "Sink unreachable: fetch failed".
+    stubFetch({ throwError: new TypeError("fetch failed", { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } }) });
+    const tool = findTool("ls_sink_stats");
+    const result = await tool.handler({});
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /^Sink request timed out \(UND_ERR_CONNECT_TIMEOUT\) /);
+    assert.doesNotMatch(result.error ?? "", /unreachable/);
+  });
+
   it("AbortSignal timeout surfaces as a timeout error", async () => {
     // Simulate AbortSignal.timeout()'s rejection. The platform throws a
     // DOMException with name "TimeoutError"; constructing one cross-runtime

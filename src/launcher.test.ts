@@ -174,6 +174,196 @@ describe("launcher pickNewest()", () => {
   });
 });
 
+/** A stand-in for the launcher's `process`: only what the pure helpers read. */
+type FakeProcess = {
+  env: Record<string, string | undefined>;
+  versions?: Record<string, string>;
+  platform?: string;
+  arch?: string;
+};
+
+/**
+ * Evaluate a REAL launcher helper (plus OAM_MIN) against a fake `process`, so
+ * the environment-driven helpers are tested without touching this process's
+ * own environment.
+ */
+function loadWithProcess<T>(name: string, pattern: RegExp): (proc: FakeProcess) => T {
+  const pieces = extract([OAM_MIN_DECL, pattern]);
+  return (proc) =>
+    new Function("process", `${pieces}\nreturn ${name};`)({
+      versions: {},
+      platform: "win32",
+      arch: "x64",
+      ...proc,
+    }) as T;
+}
+
+describe("launcher sandboxFlags()", () => {
+  const load = loadWithProcess<() => string[]>("sandboxFlags", /function sandboxFlags\(\) \{[\s\S]*?\n\}/);
+  const flagsFor = (env: Record<string, string>) => load({ env })();
+  const envGrant = (flags: string[]) =>
+    (flags.find((f) => f.startsWith("--allow-env=")) ?? "").slice("--allow-env=".length).split(",");
+  const netGrant = (flags: string[]) => flags.find((f) => f.startsWith("--allow-net=")) ?? "";
+  // What a key command's child needs from the environment on oam 0.18.0+,
+  // where a child without `env` gets only the granted variables (measured:
+  // powershell dies with "Internal Windows PowerShell error" without them).
+  const CHILD_ENV = ["SYSTEMROOT", "TEMP", "TMP", "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "WINDIR"];
+
+  it("is empty unless the sandbox is requested", () => {
+    assert.deepEqual(flagsFor({}), []);
+    assert.deepEqual(flagsFor({ LEMONSQUEEZY_MCP_SANDBOX: "true" }), []);
+  });
+
+  it("scopes the API grant to port 443", () => {
+    // From oam 0.18.0 a port-scoped entry admits fetch to that port; the floor
+    // is 0.18.0, so the grant no longer has to name the bare host.
+    assert.equal(netGrant(flagsFor({ LEMONSQUEEZY_MCP_SANDBOX: "1" })), "--allow-net=api.lemonsqueezy.com:443");
+  });
+
+  it("grants the sink on the port its URL names, or its scheme's default", () => {
+    const sink = (url: string) => netGrant(flagsFor({ LEMONSQUEEZY_MCP_SANDBOX: "1", LEMONSQUEEZY_SINK_URL: url }));
+    assert.equal(sink("http://127.0.0.1:8080/"), "--allow-net=api.lemonsqueezy.com:443,127.0.0.1:8080");
+    assert.equal(sink("https://webhooks.example.com"), "--allow-net=api.lemonsqueezy.com:443,webhooks.example.com:443");
+    assert.equal(sink("http://webhooks.example.com"), "--allow-net=api.lemonsqueezy.com:443,webhooks.example.com:80");
+    // An IPv6 literal is checked bracketed, which is how URL.hostname spells it.
+    assert.equal(sink("http://[::1]:9000"), "--allow-net=api.lemonsqueezy.com:443,[::1]:9000");
+    assert.equal(sink("not a url"), "--allow-net=api.lemonsqueezy.com:443");
+  });
+
+  it("denies child processes, and grants no platform variables, without a key command", () => {
+    const flags = flagsFor({ LEMONSQUEEZY_MCP_SANDBOX: "1" });
+    assert.ok(!flags.includes("--allow-child-process"));
+    const granted = envGrant(flags);
+    for (const name of CHILD_ENV) assert.ok(!granted.includes(name), `${name} granted without a key command`);
+    assert.ok(granted.includes("LEMONSQUEEZY_API_KEY") && granted.includes("PATH"));
+  });
+
+  it("grants child processes and what the key command's child needs when one is configured", () => {
+    const flags = flagsFor({ LEMONSQUEEZY_MCP_SANDBOX: "1", LEMONSQUEEZY_API_KEY_COMMAND: "op read op://v/k" });
+    assert.ok(flags.includes("--allow-child-process"));
+    const granted = envGrant(flags);
+    for (const name of [...CHILD_ENV, "PATH", "LEMONSQUEEZY_API_KEY_COMMAND"]) {
+      assert.ok(granted.includes(name), `${name} missing from ${granted.join(",")}`);
+    }
+    // Process-level flags, so they precede `run` -- and --permission first.
+    assert.equal(flags[0], "--permission");
+  });
+});
+
+describe("launcher nodeKeyCommandNote()", () => {
+  const load = loadWithProcess<() => string | null>(
+    "nodeKeyCommandNote",
+    /function nodeKeyCommandNote\(\) \{[\s\S]*?\n\}/,
+  );
+  const note = (env: Record<string, string>) => load({ env })();
+
+  it("flags a bare node key command under the sandbox", () => {
+    const commands = [
+      "node get-key.js",
+      "node.exe get-key.js",
+      String.raw`"C:\Program Files\nodejs\node.exe" k.js`,
+      "/usr/bin/node k.js",
+    ];
+    for (const command of commands) {
+      const text = note({ LEMONSQUEEZY_MCP_SANDBOX: "1", LEMONSQUEEZY_API_KEY_COMMAND: command });
+      assert.ok(text, `no note for ${command}`);
+      assert.match(text, /NODE_OPTIONS/);
+      assert.match(text, /sh -c 'unset NODE_OPTIONS; exec node get-key\.js'/);
+      assert.match(text, /cmd \/c "set NODE_OPTIONS=&& node get-key\.js"/);
+    }
+  });
+
+  it("says nothing for a wrapped command, another program, or without the sandbox", () => {
+    const sandboxed = (command: string) =>
+      note({ LEMONSQUEEZY_MCP_SANDBOX: "1", LEMONSQUEEZY_API_KEY_COMMAND: command });
+    assert.equal(sandboxed('cmd /c "set NODE_OPTIONS=&& node k.js"'), null);
+    assert.equal(sandboxed("op read op://v/k"), null);
+    assert.equal(sandboxed("nodemon x"), null);
+    assert.equal(note({ LEMONSQUEEZY_API_KEY_COMMAND: "node get-key.js" }), null);
+    assert.equal(note({ LEMONSQUEEZY_MCP_SANDBOX: "1" }), null);
+  });
+});
+
+describe("launcher nodeHandoffEnv()", () => {
+  type HandoffEnv = (base: Record<string, string>) => { env: Record<string, string>; dropped: string[] };
+  const load = loadWithProcess<HandoffEnv>("nodeHandoffEnv", /function nodeHandoffEnv\(base\) \{[\s\S]*?\n\}/);
+  const onOam = load({ env: {}, versions: { oam: "0.18.0" } });
+
+  it("strips the permission-model tokens Node refuses in NODE_OPTIONS, and keeps the rest", () => {
+    // Node 22: "--allow-net= is not allowed in NODE_OPTIONS", exit 9.
+    const { env, dropped } = onOam({
+      PATH: "p",
+      NODE_OPTIONS: "--max-old-space-size=512 --permission --allow-net=api.lemonsqueezy.com:443 --allow-env=PATH",
+    });
+    assert.equal(env.NODE_OPTIONS, "--max-old-space-size=512");
+    assert.deepEqual(dropped, ["--permission", "--allow-net=api.lemonsqueezy.com:443", "--allow-env=PATH"]);
+    assert.equal(env.PATH, "p");
+  });
+
+  it("removes NODE_OPTIONS when nothing else is left, whatever its case", () => {
+    const { env } = onOam({ Node_Options: "--permission --allow-child-process" });
+    assert.equal(
+      Object.keys(env).some((k) => k.toUpperCase() === "NODE_OPTIONS"),
+      false,
+    );
+  });
+
+  it("leaves the environment alone on Node, and when there is nothing to drop", () => {
+    const onNode = load({ env: {}, versions: {} });
+    const base = { NODE_OPTIONS: "--permission --allow-fs-read=*" };
+    assert.deepEqual(onNode(base), { env: base, dropped: [] });
+    assert.deepEqual(onOam({ NODE_OPTIONS: "--max-old-space-size=512" }).dropped, []);
+    assert.deepEqual(onOam({}), { env: {}, dropped: [] });
+  });
+
+  it("returns a copy, never the object it was given", () => {
+    const base = { NODE_OPTIONS: "--allow-env=PATH" };
+    onOam(base);
+    assert.equal(base.NODE_OPTIONS, "--allow-env=PATH");
+  });
+});
+
+describe("launcher remedyFor()", () => {
+  type Seen = { passedOver: (number[] | null)[]; overrideMissing: boolean; shim: string | null };
+  type Remedy = (seen: Seen) => string;
+  const REMEDY_DECL = /function remedyFor\(\{ passedOver, overrideMissing, shim \}\) \{[\s\S]*?\n\}/;
+  const load = (platform: string, arch: string) =>
+    loadWithProcess<Remedy>("remedyFor", REMEDY_DECL)({ env: {}, platform, arch });
+  const remedy = load("win32", "x64");
+  const seen = (over: Partial<Seen>): Seen => ({ passedOver: [], overrideMissing: false, shim: null, ...over });
+
+  it("sends an outdated oam to oam self-update, not to the website", () => {
+    const text = remedy(seen({ passedOver: [[0, 17, 0]] }));
+    assert.match(text, /^Run `oam self-update` to get oam 0\.18\.0 or newer\.$/m);
+    assert.doesNotMatch(text, /oamjs\.org/);
+  });
+
+  it("asks for a binary check when an oam would not run", () => {
+    const text = remedy(seen({ passedOver: [null] }));
+    assert.match(text, /Check that it is an executable oam binary/);
+    assert.doesNotMatch(text, /self-update|oamjs\.org/);
+  });
+
+  it("names a missing OAM_BIN", () => {
+    assert.match(remedy(seen({ overrideMissing: true })), /Point OAM_BIN at an existing oam binary/);
+  });
+
+  it("only suggests installing when nothing was found", () => {
+    assert.match(remedy(seen({})), /Install oam from https:\/\/oamjs\.org/);
+    assert.doesNotMatch(remedy(seen({ shim: String.raw`C:\x\oam.cmd` })), /Install oam/);
+  });
+
+  it("never suggests installing on Linux off x64, where oam publishes no build", () => {
+    const text = load("linux", "arm64")(seen({}));
+    assert.match(text, /oam publishes no build for linux-arm64/);
+    assert.doesNotMatch(text, /oamjs\.org/);
+  });
+
+  it("always offers the Node runtime", () => {
+    assert.match(remedy(seen({ passedOver: [[0, 9, 0]] })), /LEMONSQUEEZY_MCP_RUNTIME=node/);
+  });
+});
+
 type LauncherRun = { code: number; stdout: string; stderr: string };
 
 /** The scrubbed launcher environment; see runLauncher. */
@@ -195,8 +385,32 @@ function launcherPreload(hostOam: string | undefined, extraPreload: string): str
     hostOam === undefined
       ? ""
       : `Object.defineProperty(process.versions, "oam", { value: ${JSON.stringify(hostOam)}, enumerable: true });`;
-  return ["--import", `data:text/javascript,${encodeURIComponent(`${exitMarker}${posing}${extraPreload}`)}`];
+  return [
+    "--import",
+    `data:text/javascript,${encodeURIComponent(`${exitMarker}${posing}${answerNodeProbe}\n${extraPreload}`)}`,
+  ];
 }
+
+/**
+ * Answers the launcher's `--version` probe of THIS Node binary (the usual
+ * OAM_BIN here) in-process, with the version that Node would print, instead
+ * of spawning it. The answer is the same; what goes is the spawn. The probe is
+ * bounded at 5 s (VERSION_PROBE_TIMEOUT_MS), and on a contended box a bare Node
+ * start has been measured past that: the probe then read as "could not be
+ * run", discovery went on to whatever real oam was on PATH, and the case
+ * failed for reasons that had nothing to do with the launcher. Every other
+ * execFileSync passes through.
+ */
+const answerNodeProbe = [
+  'import cpForNodeProbe from "node:child_process";',
+  'import { syncBuiltinESMExports as syncNodeProbe } from "node:module";',
+  "const realExecFileSyncForNodeProbe = cpForNodeProbe.execFileSync;",
+  "cpForNodeProbe.execFileSync = function (cmd, args, opts) {",
+  "  if (cmd === process.execPath && args?.[0] === '--version') return process.version + String.fromCharCode(10);",
+  "  return realExecFileSyncForNodeProbe.call(this, cmd, args, opts);",
+  "};",
+  "syncNodeProbe();",
+].join("\n");
 
 /**
  * Run the REAL bin under Node, optionally posing as oam by preloading a
@@ -476,6 +690,9 @@ describe("launcher with no usable oam", () => {
     assert.equal(run.code, 1, JSON.stringify(run));
     assert.equal(run.stdout.trim(), "", "nothing may be served");
     assert.match(run.stderr, /LEMONSQUEEZY_MCP_RUNTIME=oam but no usable oam \(0\.18\.0 or newer\) was found/);
+    // The remedy names the cause seen -- a missing OAM_BIN -- not "install oam".
+    assert.match(run.stderr, /^Point OAM_BIN at an existing oam binary, or unset it\.$/m);
+    assert.doesNotMatch(run.stderr, /oamjs\.org/);
   });
 
   it("still falls back when the chosen oam fails to spawn on an oam host", async () => {
@@ -587,6 +804,25 @@ describe("launcher wiring", () => {
       /^lemonsqueezy-mcp: OAM_BIN=.* does not exist; using .*launcher-onpath-.* \(oam 0\.19\.0\)\.$/m,
     );
     assert.match(run.stderr, /^lemonsqueezy-mcp: failed to launch oam at .*launcher-onpath-.*; using Node instead\.$/m);
+  });
+
+  it("looks for oam in OAM_INSTALL_DIR", async () => {
+    // A custom install target, not on PATH and not one of the default
+    // locations, holding the only oam there is.
+    const exe = process.platform === "win32" ? "oam.exe" : "oam";
+    const installDir = mkdtempSync(join(tmpdir(), "lemonsqueezy-mcp-launcher-installdir-"));
+    writeFileSync(join(installDir, exe), "");
+
+    const run = await runLauncher(
+      undefined,
+      isolated({ OAM_INSTALL_DIR: installDir }),
+      `${fakeOamVersions({ "launcher-installdir-": "0.18.0" })}\n${failFirstSpawn}`,
+    );
+    assert.equal(servedInProcess(run), true, JSON.stringify(run));
+    assert.match(
+      run.stderr,
+      /^lemonsqueezy-mcp: OAM_BIN=.* does not exist; using .*launcher-installdir-.* \(oam 0\.18\.0\)\.$/m,
+    );
   });
 
   it("pipes a handoff from an oam host, and inherits stdio from a Node host", async () => {

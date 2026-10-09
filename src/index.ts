@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadGuardrailOptions } from "./guardrails.js";
+import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { affiliateTools } from "./tools/affiliates.js";
 import { checkoutTools } from "./tools/checkouts.js";
 import { customerTools } from "./tools/customers.js";
@@ -98,10 +99,15 @@ const allTools: RegisterableTool<any>[] = [
   ...sinkTools,
 ];
 
-const server = new McpServer({
-  name: "@yawlabs/lemonsqueezy-mcp",
-  version,
-});
+// `instructions` is routing guidance a host can show the model once per
+// session (see src/instructions.ts for the size and ASCII limits it keeps to).
+const server = new McpServer(
+  {
+    name: "@yawlabs/lemonsqueezy-mcp",
+    version,
+  },
+  { instructions: SERVER_INSTRUCTIONS },
+);
 
 for (const tool of allTools) {
   server.tool(tool.name, tool.description, tool.inputSchema.shape, tool.annotations, createToolHandler(tool));

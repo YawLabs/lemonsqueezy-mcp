@@ -77,17 +77,42 @@
  * and so is a handoff TO NODE from an oam host below the floor. A below-floor
  * host that hands off to a newer oam prints nothing: that is an ordinary spawn
  * of the chosen oam. A dropped sandbox gets no note of its own: with nothing
- * else to report, the fallback is silent.
+ * else to report, the fallback is silent. A Node handoff that has to drop
+ * permission flags from NODE_OPTIONS names them, and a sandboxed spawn whose key
+ * command is a bare `node` says how to wrap it. When LEMONSQUEEZY_MCP_RUNTIME=oam
+ * finds no usable oam, the remedy names the cause that was seen: `oam
+ * self-update` for an outdated oam, a check of the binary for one that will not
+ * run, and an install only when none was found.
  *
  * THE `--permission` SANDBOX (opt-in)
  * `LEMONSQUEEZY_MCP_SANDBOX=1` runs the server under oam's permission model:
- * network limited to api.lemonsqueezy.com, filesystem denied outright.
+ * network limited to api.lemonsqueezy.com on port 443, filesystem denied
+ * outright.
  *
- * LEMONSQUEEZY_SINK_URL is operator-configured, so its host is parsed out and
- * added to the grant when set rather than assumed. Child-process stays denied
+ * LEMONSQUEEZY_SINK_URL is operator-configured, so its host and port are parsed
+ * out and added to the grant when set rather than assumed. Child-process stays denied
  * UNLESS LEMONSQUEEZY_API_KEY_COMMAND is configured -- that feature runs the
  * key command as a child process (execFile, no shell), so the grant is tied to
  * the feature instead of handed over unconditionally.
+ *
+ * The key command needs more of the environment than the server does. From oam
+ * 0.18.0 a child started without an explicit `env` gets process.env as the
+ * grant shows it -- only the granted variables -- and on Windows even the
+ * variables libuv adds to a child (SYSTEMROOT, TEMP, USERPROFILE, ...) are
+ * taken from that filtered view. Measured on oam 0.18.0 with the server's
+ * list alone: `powershell -NoProfile -Command ...` died with "Internal Windows
+ * PowerShell error" for want of SYSTEMROOT. So when the key command is
+ * configured, the grant also names the platform variables a vault CLI needs
+ * (CHILD_ENV in sandboxFlags).
+ *
+ * And from oam 0.18.0, as in Node, a child of a `--permission` process gets
+ * the parent's `--permission` / `--allow-*` flags appended to its NODE_OPTIONS,
+ * for any program. Node 22 refuses `--allow-net` and `--allow-env` there and
+ * exits 9, so a key command that is `node get-key.js` cannot start under the
+ * sandbox. It has to clear NODE_OPTIONS through a wrapper -- `sh -c 'unset
+ * NODE_OPTIONS; exec node get-key.js'`, or on Windows `cmd /c "set
+ * NODE_OPTIONS=&& node get-key.js"` -- and the launcher says so on stderr when
+ * it sees one (nodeKeyCommandNote).
  *
  * Opt-in, not default, because a wrong grant does not fail loudly. oam denies a
  * non-granted environment variable by making it ABSENT from process.env rather
@@ -118,6 +143,8 @@
  *   LEMONSQUEEZY_MCP_SANDBOX=1      spawn a fresh oam under --permission
  *   OAM_BIN=/path/to/oam            use this oam when it is usable, before
  *                                   discovery
+ *   OAM_INSTALL_DIR=/dir            also look for oam here, first among the
+ *                                   installed locations
  * The runtime value is case-insensitive; anything else behaves like `auto`.
  */
 
@@ -163,7 +190,12 @@ function pathKey(p) {
  * version the installed copy wins the tie -- a dev build on PATH is replaced
  * underneath running processes by cargo. Both forms are checked on Windows: the
  * installer defaults to %LOCALAPPDATA%\oam\bin there, but oam's docs name
- * ~/.oam/bin first and OAM_INSTALL_DIR can pick either.
+ * ~/.oam/bin first.
+ *
+ * OAM_INSTALL_DIR, when set, is searched before either. It is the installer's
+ * target directory (oam docs/cli-reference.md), so an oam installed somewhere
+ * custom and never put on PATH is still found. Like the other installed
+ * locations it only ever wins a version tie; the newest oam still wins overall.
  *
  * PATH is resolved manually rather than by spawning `which`/`where`, which
  * would cost a subprocess on every launch just to decide whether to spawn.
@@ -179,6 +211,7 @@ function discoverOamPaths() {
   if (isWin) {
     installed.unshift(join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "oam", "bin", exe));
   }
+  if (process.env.OAM_INSTALL_DIR) installed.unshift(join(process.env.OAM_INSTALL_DIR, exe));
   const onPath = (process.env.PATH ?? "")
     .split(delimiter)
     .filter(Boolean)
@@ -283,7 +316,15 @@ function runtimePlan({ mode, hostOam, sandbox }) {
  * not after it. `oam run --permission file.js` is rejected outright, which is a
  * good failure but only because it is loud -- ordering here is load-bearing.
  *
- * Net grants prefix-match `host` for fetch and `host:port` for sockets.
+ * Net grants: an entry without a port admits the host on every port, and a
+ * `host:port` entry admits that port alone -- for sockets AND, from oam 0.18.0,
+ * for fetch / http(s).request / WebSocket too (up to 0.17.1 a port-scoped entry
+ * admitted no HTTP request at all, which is why this grant used to name bare
+ * hosts). The floor is 0.18.0, so every grant here is port-scoped: the API is
+ * only ever dialled on 443, and the sink on the port its URL names (or its
+ * scheme's default). An IPv6 literal is checked bracketed (`[::1]:8080`), which
+ * is how URL.hostname already spells it.
+ *
  * A denied environment variable is ABSENT from process.env rather than throwing,
  * so the env list below is derived from what the bundle actually reads; trimming
  * it produces silent misbehaviour, not a clear denial.
@@ -291,12 +332,14 @@ function runtimePlan({ mode, hostOam, sandbox }) {
 function sandboxFlags() {
   if (process.env.LEMONSQUEEZY_MCP_SANDBOX !== "1") return [];
 
-  const hosts = ["api.lemonsqueezy.com"];
+  const hosts = ["api.lemonsqueezy.com:443"];
   // LEMONSQUEEZY_SINK_URL is operator-configured, so its host has to be learned, not assumed.
   if (process.env.LEMONSQUEEZY_SINK_URL) {
     try {
-      const { hostname } = new URL(process.env.LEMONSQUEEZY_SINK_URL);
-      if (hostname && !hosts.includes(hostname)) hosts.push(hostname);
+      const { hostname, port, protocol } = new URL(process.env.LEMONSQUEEZY_SINK_URL);
+      const defaultPort = { "http:": "80", "https:": "443" }[protocol];
+      const entry = hostname && (port || defaultPort) ? `${hostname}:${port || defaultPort}` : null;
+      if (entry && !hosts.includes(entry)) hosts.push(entry);
     } catch {
       // Malformed URL: the feature is already broken on its own terms; adding
       // nothing here keeps the grant honest rather than guessing a host.
@@ -319,10 +362,58 @@ function sandboxFlags() {
     "PATH",
   ];
 
-  const flags = ["--permission", netFlag, `--allow-env=${env.join(",")}`];
-  // Tied to the feature that needs it, not granted unconditionally.
-  if (process.env.LEMONSQUEEZY_API_KEY_COMMAND) flags.push("--allow-child-process");
+  // What the key command's child process needs on top of the server's own
+  // list. From oam 0.18.0 a child spawned without `env` gets only the granted
+  // variables, and on Windows libuv's own additions (SYSTEMROOT, TEMP, ...) are
+  // filtered the same way -- see THE `--permission` SANDBOX above. PowerShell
+  // and Winsock need SYSTEMROOT; vault CLIs (op, gcloud) find their config and
+  // session under USERPROFILE / APPDATA / LOCALAPPDATA on Windows and HOME
+  // elsewhere; TEMP / TMP / TMPDIR are where they write scratch files.
+  const childEnv = [
+    "APPDATA",
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "LANG",
+    "LOCALAPPDATA",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "USERPROFILE",
+    "WINDIR",
+  ];
+
+  // Tied to the feature that needs them, not granted unconditionally.
+  const keyCommand = Boolean(process.env.LEMONSQUEEZY_API_KEY_COMMAND);
+  const flags = ["--permission", netFlag, `--allow-env=${(keyCommand ? [...env, ...childEnv] : env).join(",")}`];
+  if (keyCommand) flags.push("--allow-child-process");
   return flags;
+}
+
+/**
+ * The stderr note for a sandboxed key command that is a bare Node invocation,
+ * or null. From oam 0.18.0 the child gets the server's `--permission` /
+ * `--allow-*` flags in NODE_OPTIONS, and Node 22 rejects `--allow-net` there
+ * (measured: "node: --allow-net= is not allowed in NODE_OPTIONS", exit 9), so
+ * `node get-key.js` fails on every call. The command is not rewritten -- it is
+ * the operator's, and a wrapper is a one-line fix they can see -- only flagged.
+ *
+ * Pure apart from reading the two variables, so the test can evaluate it.
+ */
+function nodeKeyCommandNote() {
+  if (process.env.LEMONSQUEEZY_MCP_SANDBOX !== "1") return null;
+  const command = (process.env.LEMONSQUEEZY_API_KEY_COMMAND ?? "").trim();
+  const first = /^(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(command);
+  const program = first ? (first[1] ?? first[2] ?? first[3]) : "";
+  if (!/(?:^|[\\/])node(?:\.exe)?$/i.test(program)) return null;
+  return (
+    "LEMONSQUEEZY_API_KEY_COMMAND runs node under LEMONSQUEEZY_MCP_SANDBOX=1, and oam passes its " +
+    "--permission/--allow-* flags to that child in NODE_OPTIONS, which Node refuses (exit 9). " +
+    "Clear NODE_OPTIONS through a wrapper: sh -c 'unset NODE_OPTIONS; exec node get-key.js', " +
+    'or on Windows cmd /c "set NODE_OPTIONS=&& node get-key.js"'
+  );
 }
 
 /**
@@ -379,7 +470,16 @@ function findNodeOnPath() {
   return null;
 }
 
-/** Why a candidate was passed over, for stderr. */
+/**
+ * Why a candidate was passed over, for stderr.
+ *
+ * Two different causes, and they need different remedies. A null `version` is
+ * NOT "old": oamVersion returns null when the binary could not be run at all
+ * (not executable, wrong arch, wedged, deleted between the stat and the probe)
+ * or when its --version output did not parse. Telling that user to
+ * `oam self-update` sends them after the one cause it definitely is not, so the
+ * wording splits here, and so does the remedy in `remedyFor`.
+ */
 function unusableReason(path, version, label = path) {
   const min = OAM_MIN.join(".");
   return version
@@ -389,20 +489,29 @@ function unusableReason(path, version, label = path) {
 
 /**
  * Choose the oam to spawn: a usable OAM_BIN, else the newest usable discovered
- * binary. Returns the choice (or null) plus stderr notes: `overrideNote` about
- * an unusable OAM_BIN, and `skipped` describing what was found and rejected
- * when nothing was usable.
+ * binary. Returns the choice (or null) plus what stderr needs:
+ *   overrideNote     why OAM_BIN was passed over, or null
+ *   skipped          why each discovered binary was passed over, when none was chosen
+ *   passedOver       the `version` of every existing binary rejected (OAM_BIN
+ *                    included), so a hard failure can name the right remedy
+ *   overrideMissing  OAM_BIN was set to a path that does not exist
  */
 function chooseOam() {
   const override = process.env.OAM_BIN;
   let overrideNote = null;
+  let overrideMissing = false;
+  const passedOver = [];
   if (override) {
     if (!existsSync(override)) {
       overrideNote = `OAM_BIN=${override} does not exist`;
+      overrideMissing = true;
     } else {
       const version = oamVersion(override);
-      if (atLeast(version, OAM_MIN)) return { chosen: { path: override, version }, overrideNote, skipped: [] };
+      if (atLeast(version, OAM_MIN)) {
+        return { chosen: { path: override, version }, overrideNote, skipped: [], passedOver, overrideMissing };
+      }
       overrideNote = unusableReason(override, version, `OAM_BIN=${override}`);
+      passedOver.push(version);
     }
   }
   const overrideKey = override ? pathKey(override) : null;
@@ -411,7 +520,39 @@ function chooseOam() {
     .map((path) => ({ path, version: oamVersion(path) }));
   const chosen = pickNewest(candidates);
   const skipped = chosen ? [] : candidates.map((c) => unusableReason(c.path, c.version));
-  return { chosen, overrideNote, skipped };
+  if (!chosen) passedOver.push(...candidates.map((c) => c.version));
+  return { chosen, overrideNote, skipped, passedOver, overrideMissing };
+}
+
+/**
+ * What would fix "no usable oam", one line per cause that was actually seen.
+ *
+ * An outdated oam is fixed by `oam self-update`, not by a trip to the website;
+ * an unrunnable one by checking the binary; a missing OAM_BIN by pointing it at
+ * something real. Only when nothing at all was found is installing the remedy --
+ * and not even then on Linux off x64: oam publishes darwin arm64/x64, windows
+ * arm64/x64 and linux x64, with no linux-arm64 asset, so on an arm64 Linux box
+ * (a Pi, an arm64 cloud instance, WSL on an ARM Windows host) "install oam" is
+ * an impossible remedy.
+ */
+function remedyFor({ passedOver, overrideMissing, shim }) {
+  const lines = [];
+  if (passedOver.some((v) => v !== null)) {
+    lines.push(`Run \`oam self-update\` to get oam ${OAM_MIN.join(".")} or newer.\n`);
+  }
+  if (passedOver.some((v) => v === null)) {
+    lines.push("Check that it is an executable oam binary for this platform.\n");
+  }
+  if (overrideMissing) lines.push("Point OAM_BIN at an existing oam binary, or unset it.\n");
+  if (lines.length === 0 && !shim) {
+    lines.push(
+      process.platform === "linux" && process.arch !== "x64"
+        ? `oam publishes no build for linux-${process.arch}, so there is nothing to install here: set OAM_BIN=/path/to/oam if you built one yourself.\n`
+        : "Install oam from https://oamjs.org, or set OAM_BIN=/path/to/oam.\n",
+    );
+  }
+  lines.push("Or use LEMONSQUEEZY_MCP_RUNTIME=node to run on Node.\n");
+  return lines.join("");
 }
 
 /** Run the server in THIS process. The zero-overhead fallback. */
@@ -440,13 +581,14 @@ const fallbackFailed = (e) => {
 };
 
 /**
- * Spawn the server in a child runtime and mirror its lifetime.
+ * Spawn the server in a child runtime and mirror its lifetime. `env` is the
+ * child's whole environment (nodeHandoffEnv's for a Node handoff).
  *
  * `onLaunchFailed(err)` runs when the child could not be started at all; it is
  * never called once the child is running, which would double-start the server
  * on the same stdio.
  */
-async function launchChild(cmd, args, onLaunchFailed) {
+async function launchChild(cmd, args, env, onLaunchFailed) {
   // Any spawn from an oam host pipes. Below the floor its `stdio: 'inherit'`
   // does not hand over the fds. A supported host only gets here in two cases:
   // the sandbox asked for a fresh oam, or LEMONSQUEEZY_MCP_RUNTIME=node handed
@@ -460,7 +602,7 @@ async function launchChild(cmd, args, onLaunchFailed) {
       // server's shutdown path. Piping preserves both as well: bytes are copied
       // unchanged, and stdin's end propagates to the child.
       stdio: piped ? ["pipe", "pipe", "pipe"] : "inherit",
-      env: process.env,
+      env,
       windowsHide: true,
     });
   } catch (err) {
@@ -563,6 +705,41 @@ async function launchChild(cmd, args, onLaunchFailed) {
 }
 
 /**
+ * The environment for a Node handoff from an oam host: process.env with the
+ * permission-model tokens (`--permission`, `--allow-*`) taken out of
+ * NODE_OPTIONS, plus the tokens dropped, for stderr.
+ *
+ * From oam 0.18.0 a child of a `--permission` oam inherits that oam's grants
+ * through NODE_OPTIONS, as Node's children do, and an oam started as such a
+ * child reads them back from there. Node 22 refuses `--allow-net` and
+ * `--allow-env` in NODE_OPTIONS and exits 9 before running a line, so a host
+ * that inherited them would hand off to a Node that never starts. Node has no
+ * net or env grants to apply, so the only choices are a dead handoff or one
+ * without them; the drop is named on stderr rather than made silently.
+ *
+ * Only an INHERITED value can be cleaned up here. A host oam started with
+ * `--permission` on its own command line re-appends its execArgv flags to the
+ * child's NODE_OPTIONS at spawn, whatever `env` says, exactly as Node does.
+ * Only the Node handoff gets this: a fresh oam accepts the same flags and
+ * should keep the grants it was handed.
+ *
+ * Pure: `base` in, a copy out, so the test can evaluate it.
+ */
+function nodeHandoffEnv(base) {
+  const env = { ...base };
+  const key = Object.keys(env).find((k) => k.toUpperCase() === "NODE_OPTIONS");
+  if (process.versions.oam === undefined || key === undefined) return { env, dropped: [] };
+  const tokens = String(env[key]).split(/\s+/).filter(Boolean);
+  const isPermission = (t) => t === "--permission" || t.startsWith("--allow-");
+  const dropped = tokens.filter(isPermission);
+  if (dropped.length === 0) return { env, dropped };
+  const kept = tokens.filter((t) => !isPermission(t));
+  if (kept.length > 0) env[key] = kept.join(" ");
+  else delete env[key];
+  return { env, dropped };
+}
+
+/**
  * Hand the server to Node on PATH. Only reachable when THIS process is oam --
  * one below the floor, or any oam under LEMONSQUEEZY_MCP_RUNTIME=node -- so
  * there is no in-process option left.
@@ -570,14 +747,25 @@ async function launchChild(cmd, args, onLaunchFailed) {
 async function handOffToNode(reason) {
   const node = findNodeOnPath();
   if (!node) {
+    // Two ways here, two remedies: an oam below the floor is fixed by updating
+    // it, while LEMONSQUEEZY_MCP_RUNTIME=node on a supported oam asked for Node
+    // outright.
+    const remedy = reason
+      ? `Run \`oam self-update\` to get oam ${OAM_MIN.join(".")} or newer, or launch this command with node.\n`
+      : "Put Node on PATH, or unset LEMONSQUEEZY_MCP_RUNTIME to serve on this oam.\n";
     await errSync(
-      `lemonsqueezy-mcp: ${reason}, and no Node was found on PATH to run the server instead.\n` +
-        `Run \`oam self-update\` to get oam ${OAM_MIN.join(".")} or newer, or launch this command with node.\n`,
+      `lemonsqueezy-mcp: ${reason || `LEMONSQUEEZY_MCP_RUNTIME=node on oam ${process.versions.oam}`}, and no Node was found on PATH to run the server instead.\n${remedy}`,
     );
     process.exit(1);
   }
   if (reason) await errSync(`lemonsqueezy-mcp: ${reason}; running on ${node} instead.\n`);
-  await launchChild(node, [SERVER_ENTRY, ...process.argv.slice(2)], async (err) => {
+  const { env, dropped } = nodeHandoffEnv(process.env);
+  if (dropped.length > 0) {
+    await errSync(
+      `lemonsqueezy-mcp: dropping ${dropped.join(" ")} from NODE_OPTIONS for the Node handoff -- Node cannot apply oam's permission flags there.\n`,
+    );
+  }
+  await launchChild(node, [SERVER_ENTRY, ...process.argv.slice(2)], env, async (err) => {
     await errSync(`lemonsqueezy-mcp: failed to launch Node at ${node} (${err?.message ?? err})\n`);
     process.exit(1);
   });
@@ -624,23 +812,32 @@ if (plan === "in-process") {
   const belowFloor = !atLeast(parseVersion(hostOam), OAM_MIN);
   await handOffToNode(belowFloor ? `this process is oam ${hostOam}, older than ${OAM_MIN.join(".")}` : "");
 } else {
-  const { chosen, overrideNote, skipped } = chooseOam();
+  const { chosen, overrideNote, skipped, passedOver, overrideMissing } = chooseOam();
 
   if (chosen) {
     if (overrideNote) {
       await errSync(`lemonsqueezy-mcp: ${overrideNote}; using ${chosen.path} (oam ${chosen.version.join(".")}).\n`);
     }
+    // Only where the sandbox is actually applied: on any fallback the server
+    // runs without --permission and a Node key command starts as usual.
+    const keyNote = sandbox.length > 0 ? nodeKeyCommandNote() : null;
+    if (keyNote) await errSync(`lemonsqueezy-mcp: ${keyNote}.\n`);
     // `--` separates oam's own flags from the script's argv, so `lemonsqueezy-mcp
     // --version` and any host-supplied flags survive the hop unchanged. The
     // sandbox flags are process-level, so they go BEFORE `run`.
-    await launchChild(chosen.path, [...sandbox, "run", SERVER_ENTRY, "--", ...process.argv.slice(2)], async (err) => {
-      const failed = `failed to launch oam at ${chosen.path} (${err?.message ?? err})`;
-      if (mode === "oam") {
-        await errSync(`lemonsqueezy-mcp: ${failed}\n`);
-        process.exit(1);
-      }
-      await fallBack(hostOam, failed, true);
-    });
+    await launchChild(
+      chosen.path,
+      [...sandbox, "run", SERVER_ENTRY, "--", ...process.argv.slice(2)],
+      process.env,
+      async (err) => {
+        const failed = `failed to launch oam at ${chosen.path} (${err?.message ?? err})`;
+        if (mode === "oam") {
+          await errSync(`lemonsqueezy-mcp: ${failed}\n`);
+          process.exit(1);
+        }
+        await fallBack(hostOam, failed, true);
+      },
+    );
   } else {
     const shim = findOamShim();
     const notes = [
@@ -656,7 +853,7 @@ if (plan === "in-process") {
       await errSync(
         `lemonsqueezy-mcp: LEMONSQUEEZY_MCP_RUNTIME=oam but no usable oam (${OAM_MIN.join(".")} or newer) was found.\n` +
           notes.map((note) => `  ${note}\n`).join("") +
-          "Install or update from https://oamjs.org, set OAM_BIN=/path/to/oam, or use LEMONSQUEEZY_MCP_RUNTIME=node.\n",
+          remedyFor({ passedOver, overrideMissing, shim }),
       );
       process.exit(1);
     }

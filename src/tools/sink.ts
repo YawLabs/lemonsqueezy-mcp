@@ -31,6 +31,7 @@
  */
 
 import { z } from "zod";
+import { causeCode, describeNetworkError, isFetchTimeoutCause } from "../retry.js";
 import type { ToolHandlerResponse } from "../wrapper.js";
 
 const SINK_REPO_URL = "https://github.com/YawLabs/lemonsqueezy-webhook-sink";
@@ -132,10 +133,18 @@ async function sinkRequest(
     });
   } catch (err) {
     // AbortSignal.timeout() rejects with a DOMException named "TimeoutError".
+    // The runtime fetch's own timeouts (a 10 s connect timeout among them)
+    // reject with `TypeError: fetch failed` and an undici code on err.cause,
+    // with no "timeout" in the message, so they are classified by that code.
     // Other transport failures (DNS, refused, reset) surface as TypeError or
-    // similar. Both land here and we collapse them to a single human-readable
-    // message so the agent doesn't see "fetch failed" without context.
-    const message = err instanceof Error ? err.message : String(err);
+    // similar. All land here and we collapse them to a single human-readable
+    // message, with the cause code, so the agent doesn't see "fetch failed"
+    // without context.
+    const message = describeNetworkError(err);
+    const code = causeCode(err);
+    if (isFetchTimeoutCause(err)) {
+      return { ok: false, error: `Sink request timed out (${code}) (${config.url})` };
+    }
     const isTimeout = err instanceof Error && (err.name === "TimeoutError" || /timeout/i.test(message));
     return {
       ok: false,

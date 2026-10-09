@@ -1,8 +1,30 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+/**
+ * execFile as a promise of { stdout, stderr }, built on the callback form
+ * rather than `util.promisify(execFile)`.
+ *
+ * Node's promisify finds execFile's `util.promisify.custom` and resolves with
+ * { stdout, stderr }. oam 0.18.0 resolves the same call with the stdout string
+ * alone (measured on windows-arm64: `promisify(execFile)("cmd", ["/c", "echo",
+ * "hi"])` gives `"hi\r\n"` on oam and `{ stdout: "hi\r\n", stderr: "" }` on
+ * Node), so `result.stdout` read as undefined and every key command failed
+ * with "Cannot read properties of undefined (reading 'trim')". The callback
+ * form behaves the same in both runtimes.
+ */
+function execFileAsync(
+  command: string,
+  args: string[],
+  options: { timeout: number; maxBuffer: number },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { ...options, encoding: "utf8" }, (err, stdout, stderr) => {
+      if (err) reject(err);
+      else resolve({ stdout: String(stdout), stderr: String(stderr) });
+    });
+  });
+}
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const COMMAND_TIMEOUT_MS = 10_000;

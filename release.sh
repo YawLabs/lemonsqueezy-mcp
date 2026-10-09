@@ -358,18 +358,30 @@ fi
 # =============================================================================
 # Step 1: Lint
 # =============================================================================
-step 1 "Lint and Containerfile drift check"
+step 1 "Lint, Containerfile drift and oam floor check"
 npm run lint || fail "Lint failed (try: npm run lint:fix)"
 info "Lint passed"
 npm run check:containerfile || fail "Containerfile drifted from Dockerfile (run: npm run gen:containerfile)"
 info "Containerfile in sync with Dockerfile"
+# The drift half also runs in step 2 (src/oam-floor.test.ts); this adds the
+# network half: is OAM_MIN behind the latest oam release? An unreachable
+# GitHub API is reported and does not fail the step.
+node scripts/check-oam-floor.mjs || fail "oam floor check failed -- see above. Set LEMONSQUEEZY_MCP_ALLOW_STALE_OAM=1 to release on the old floor deliberately."
+info "oam floor consistent and current"
 
 # =============================================================================
 # Step 2: Test (npm test runs the build internally)
 # =============================================================================
-step 2 "Test"
+step 2 "Test and MCP compliance"
 npm test || fail "Tests failed"
 info "Tests passed"
+# After the tests, not in step 1: the suite grades the dist/ bundle, and
+# `npm test` is what builds it, so earlier it would grade a stale build. Same
+# @yawlabs/mcp-compliance version line yaw-mcp grades with. A failed grade
+# fails the release; a suite that could not run warns and carries on (set
+# LEMONSQUEEZY_MCP_COMPLIANCE_STRICT=1 to fail on that too).
+npm run check:compliance || fail "MCP compliance gate failed -- see above (LEMONSQUEEZY_MCP_MIN_COMPLIANCE sets the minimum grade, default A)"
+info "MCP compliance gate passed"
 
 # =============================================================================
 # Step 3: Bump version
