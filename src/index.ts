@@ -30,11 +30,11 @@ import { webhookTools } from "./tools/webhooks.js";
 import { createToolHandler, type RegisterableTool, readAuditLogResource } from "./wrapper.js";
 
 // Injected at build time by esbuild (`define: { __VERSION__ }` in both
-// build.mjs and scripts/build-binary.mjs); falls back to reading package.json
+// build.mjs and scripts/build-binary-oam.mjs); falls back to reading package.json
 // for a plain `tsc` build, where the define is absent.
 //
 // The fallback must NOT use top-level await: the single-binary build bundles
-// to CJS (scripts/build-binary.mjs), and esbuild cannot emit top-level await
+// to CJS (scripts/build-binary-oam.mjs), and esbuild cannot emit top-level await
 // in CJS output. A static `createRequire` import keeps this expression
 // synchronous so the fallback survives regardless of whether the `__VERSION__`
 // define lets esbuild constant-fold the branch away. Same constraint applies
@@ -136,7 +136,7 @@ server.resource(
 
 const transport = new StdioServerTransport();
 // Not top-level await: the single-binary build bundles to CJS via esbuild
-// (scripts/build-binary.mjs), which cannot emit top-level await. Promise-chain
+// (scripts/build-binary-oam.mjs), which cannot emit top-level await. Promise-chain
 // the connect instead. This file must stay free of top-level await entirely --
 // see the version-fallback note at the top.
 server.connect(transport).catch((err: unknown) => {

@@ -396,7 +396,7 @@ Note the `--` separator if you pass arguments to the server rather than to oam: 
 Two places oam *does* win for this repo, both opt-in and neither touching the npm package:
 
 - **`npm run check:oam`** — type-checks via `oam check` (tsgo, TypeScript 7 native). Measured 2878ms against 4406ms for `tsc --noEmit`, same clean result. `npx tsc --noEmit` remains the portable default and is what the pre-commit checklist calls for.
-- **`npm run build:binary:oam`** — builds the standalone binary via `oam compile` instead of the Node SEA path. Measured 57.14 MB. Writes to the same `bin/<platform>-<arch>/` path as the Node SEA build (`node scripts/build-binary.mjs`), so `scripts/stage-release-asset.mjs` consumes either unchanged — run one or the other, not both. If you redistribute that binary it embeds oam's runtime, so ship oam's `LICENSE`, `NOTICE` and `THIRD_PARTY_LICENSES.md` with it.
+- **`npm run build:binary:oam`** — builds the standalone binary via `oam compile` (`scripts/build-binary-oam.mjs`). Measured 57.14 MB. Writes to `bin/<platform>-<arch>/`, which `scripts/stage-release-asset.mjs` then stages as a release asset. If you redistribute that binary it embeds oam's runtime, so ship oam's `LICENSE`, `NOTICE` and `THIRD_PARTY_LICENSES.md` with it.
 
 The source stays runtime-agnostic on purpose: no `oam:` imports anywhere, and tests stay on `node:test`. That is what keeps the Node fallback real rather than nominal — an `oam:test` or `oam:`-prefixed import would make "falls back to Node" false the moment it landed. Any `oam` invocation writes a bytecode cache to `oam/` in the working directory; that path is gitignored.
 

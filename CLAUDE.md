@@ -4,7 +4,7 @@ LemonSqueezy MCP server — manage your store, subscriptions, customers, and lic
 
 ## Architecture
 
-- `src/index.ts` — Entry point. Registers all tools with McpServer, handles version subcommand. Must stay free of top-level await (the single-binary build emits CJS).
+- `src/index.ts` — Entry point. Registers all tools with McpServer, handles version subcommand. Must stay free of top-level await (the `oam compile` binary build emits CJS).
 - `src/api.ts` — LemonSqueezy API client. Bearer token auth, JSON:API format, 30s timeout. Also exports `licenseRequest` for the License API (different auth), plus the shared `buildQuery` / `buildInvoiceQuery` / cross-store-note helpers used by the tool modules.
 - `src/wrapper.ts` — Sits between the SDK's registered handler and each tool handler. Runs the guardrails in a load-bearing order, then logs and audits. `createToolHandler` is the only production caller path.
 - `src/guardrails.ts` — Store allowlist, refund cap, destructive + per-authority-class rate limits. All opt-in via env.
@@ -41,7 +41,7 @@ The published `bin` (`bin/lemonsqueezy-mcp.mjs`) prefers the newest usable oam a
 
 The cold-start figures previously quoted here (196ms Node vs 424ms `oam run`) are **withdrawn, not restated**: they were taken with the methodology that npmjs-mcp later documented as wrong — timing a binary out of a cargo `target/` directory while it was being rebuilt. Interleaved runs against an *installed* oam put it ahead of Node on the sibling servers. Nothing has been re-measured for this repo, so treat runtime choice here as untimed rather than as a decided cost.
 
-**Keep `src/` runtime-agnostic.** No `oam:`-prefixed imports, tests stay on `node:test`. The moment an oam-only API lands in source, "falls back to Node" stops being true. oam is used at BUILD time only: `npm run check:oam` (tsgo typecheck, faster than `tsc`) and `npm run build:binary:oam` (`oam compile` instead of Node SEA, ~57 MB). Both write nothing into the npm package.
+**Keep `src/` runtime-agnostic.** No `oam:`-prefixed imports, tests stay on `node:test`. The moment an oam-only API lands in source, "falls back to Node" stops being true. oam is used at BUILD time only: `npm run check:oam` (tsgo typecheck, faster than `tsc`) and `npm run build:binary:oam` (`oam compile` via `scripts/build-binary-oam.mjs`, ~57 MB). Both write nothing into the npm package.
 
 ## Release process
 
