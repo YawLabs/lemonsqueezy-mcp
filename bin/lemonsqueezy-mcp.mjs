@@ -121,7 +121,7 @@
  * shipped bundle actually reads -- keep it in step with the bundle.
  *
  * MINIMUM OAM VERSION
- * OAM_MIN, 0.18.0, is a floor: the oam this server was last verified on, not
+ * OAM_MIN, 0.19.1, is a floor: the oam this server was last verified on, not
  * a claim that it is the newest oam. Raise it once a newer oam has been
  * re-verified here (handshake and all 64 tools through this launcher). The
  * server only runs on an oam at or above the floor; an older one is never
@@ -141,11 +141,14 @@
  *   LEMONSQUEEZY_MCP_RUNTIME=node   Node: in THIS process on Node, handed off
  *                                   to Node on PATH when THIS process is oam
  *   LEMONSQUEEZY_MCP_SANDBOX=1      spawn a fresh oam under --permission
+ *                                   (`1` or `true`, any case, whitespace
+ *                                   ignored; any other value is off, with a
+ *                                   warning on stderr)
  *   OAM_BIN=/path/to/oam            use this oam when it is usable, before
  *                                   discovery
  *   OAM_INSTALL_DIR=/dir            also look for oam here, first among the
  *                                   installed locations
- * The runtime value is case-insensitive; anything else behaves like `auto`.
+ * The runtime value is case-insensitive and trimmed; anything else behaves like `auto`.
  */
 
 import { execFileSync, spawn } from "node:child_process";
@@ -155,7 +158,7 @@ import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Oldest oam this server is served on. See MINIMUM OAM VERSION above. */
-const OAM_MIN = [0, 18, 0];
+const OAM_MIN = [0, 19, 1];
 
 /**
  * Bound on each `oam --version` probe. A healthy oam answers in milliseconds;
@@ -310,6 +313,29 @@ function runtimePlan({ mode, hostOam, sandbox }) {
 }
 
 /**
+ * LEMONSQUEEZY_MCP_SANDBOX as "on", "off" or "invalid". `1` or `true` in any
+ * case turns it on, and surrounding whitespace is ignored: cmd.exe's
+ * `set LEMONSQUEEZY_MCP_SANDBOX=1 && ...` stores "1 ", and a strict `=== "1"`
+ * read that as off, silently dropping the sandbox the user asked for. Any other
+ * non-empty value is "invalid", which is still off -- an unrecognised value must
+ * not turn on a mode with different failure behaviour -- but the launcher says
+ * so on stderr instead of running unsandboxed in silence.
+ */
+function sandboxOptIn() {
+  const raw = (process.env.LEMONSQUEEZY_MCP_SANDBOX ?? "").trim();
+  if (raw === "") return "off";
+  return /^(1|true)$/i.test(raw) ? "on" : "invalid";
+}
+
+/**
+ * LEMONSQUEEZY_MCP_RUNTIME, trimmed and lower-cased (cmd.exe's `set X=node && ...`
+ * stores "node "). runtimePlan treats anything unrecognised as `auto`.
+ */
+function runtimeMode() {
+  return (process.env.LEMONSQUEEZY_MCP_RUNTIME ?? "auto").trim().toLowerCase();
+}
+
+/**
  * The `--permission` grant list, or [] when the sandbox is not requested.
  *
  * These are oam's PROCESS-level flags: they belong before the `run` subcommand,
@@ -320,7 +346,7 @@ function runtimePlan({ mode, hostOam, sandbox }) {
  * `host:port` entry admits that port alone -- for sockets AND, from oam 0.18.0,
  * for fetch / http(s).request / WebSocket too (up to 0.17.1 a port-scoped entry
  * admitted no HTTP request at all, which is why this grant used to name bare
- * hosts). The floor is 0.18.0, so every grant here is port-scoped: the API is
+ * hosts). The floor is past that, so every grant here is port-scoped: the API is
  * only ever dialled on 443, and the sink on the port its URL names (or its
  * scheme's default). An IPv6 literal is checked bracketed (`[::1]:8080`), which
  * is how URL.hostname already spells it.
@@ -330,7 +356,7 @@ function runtimePlan({ mode, hostOam, sandbox }) {
  * it produces silent misbehaviour, not a clear denial.
  */
 function sandboxFlags() {
-  if (process.env.LEMONSQUEEZY_MCP_SANDBOX !== "1") return [];
+  if (sandboxOptIn() !== "on") return [];
 
   const hosts = ["api.lemonsqueezy.com:443"];
   // LEMONSQUEEZY_SINK_URL is operator-configured, so its host has to be learned, not assumed.
@@ -403,7 +429,7 @@ function sandboxFlags() {
  * Pure apart from reading the two variables, so the test can evaluate it.
  */
 function nodeKeyCommandNote() {
-  if (process.env.LEMONSQUEEZY_MCP_SANDBOX !== "1") return null;
+  if (sandboxOptIn() !== "on") return null;
   const command = (process.env.LEMONSQUEEZY_API_KEY_COMMAND ?? "").trim();
   const first = /^(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(command);
   const program = first ? (first[1] ?? first[2] ?? first[3]) : "";
@@ -798,8 +824,14 @@ async function fallBack(hostOam, note, newerFound = false) {
   await handOffToNode(`${note ? `${note}; ` : ""}${why}`);
 }
 
-const mode = (process.env.LEMONSQUEEZY_MCP_RUNTIME ?? "auto").toLowerCase();
+const mode = runtimeMode();
 const hostOam = process.versions.oam;
+
+if (sandboxOptIn() === "invalid") {
+  await errSync(
+    `lemonsqueezy-mcp: LEMONSQUEEZY_MCP_SANDBOX=${JSON.stringify(process.env.LEMONSQUEEZY_MCP_SANDBOX)} is not 1 or true; running without the sandbox.\n`,
+  );
+}
 
 // Computed ONCE and reused by the spawn below, so "would the spawn carry
 // --permission" cannot drift from what the spawn actually passes.

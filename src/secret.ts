@@ -12,6 +12,11 @@ import { createHash } from "node:crypto";
  * Node), so `result.stdout` read as undefined and every key command failed
  * with "Cannot read properties of undefined (reading 'trim')". The callback
  * form behaves the same in both runtimes.
+ *
+ * windowsHide keeps a key command such as `cmd /c gcloud ...` or
+ * `powershell -File ...` from flashing a console window when a GUI MCP client
+ * with no console launches this server. Node honours it, and so does oam from
+ * 0.19.1. It is ignored off Windows.
  */
 function execFileAsync(
   command: string,
@@ -19,7 +24,7 @@ function execFileAsync(
   options: { timeout: number; maxBuffer: number },
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { ...options, encoding: "utf8" }, (err, stdout, stderr) => {
+    execFile(command, args, { ...options, encoding: "utf8", windowsHide: true }, (err, stdout, stderr) => {
       if (err) reject(err);
       else resolve({ stdout: String(stdout), stderr: String(stderr) });
     });

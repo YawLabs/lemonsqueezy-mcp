@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+- **The oam floor moves from 0.18.0 to 0.19.1, so the `lemonsqueezy-mcp` launcher no longer runs the server on oam 0.18.x or 0.19.0.** 0.19.1 is verified through the launcher with `OAM_BIN` pointing at the installed oam 0.19.1 (windows-arm64) and `LEMONSQUEEZY_MCP_RUNTIME=oam`: the MCP handshake, all 64 tools, `ls_get_user` answering the missing-key error it gives on Node, and the `lemonsqueezy://audit-log` resource, with the server process confirmed as `oam.exe run .../dist/index.js`. Under `LEMONSQUEEZY_MCP_SANDBOX=1` the launcher spawned `oam.exe --permission --allow-net=api.lemonsqueezy.com:443 ...`, the same 64 tools answered, and a `cmd /c` key command returned a key that the API rejected on 443 with `Unauthenticated.`. An oam below 0.19.1 is passed over as before: the server runs on a newer oam or on Node under `auto`, and `LEMONSQUEEZY_MCP_RUNTIME=oam` exits with an error. Run `oam self-update`.
+- **`LEMONSQUEEZY_MCP_SANDBOX` accepts `1` or `true` in any case, with surrounding whitespace ignored.** cmd.exe's `set LEMONSQUEEZY_MCP_SANDBOX=1 && ...` stores `"1 "`, which the strict `=== "1"` compare read as off, so the sandbox was dropped without a word. Any other non-empty value still leaves the sandbox off, and the launcher now says so on stderr. `LEMONSQUEEZY_MCP_RUNTIME` is trimmed as well as lower-cased, and `LEMONSQUEEZY_MCP_ALLOW_STALE_OAM` in `scripts/check-oam-floor.mjs` reads `1` / `true` the same way (anything else still fails a stale floor).
+
+### Fixed
+- **`scripts/check-oam-floor.mjs` runs from a junctioned or symlinked checkout.** It decided it was the main module by comparing `process.argv[1]` with its own `import.meta.url`, and Node realpaths the second but not the first, so from such a path the check never ran and the script exited 0 in silence. Both sides are now realpath'd, as in yaw-mcp's `scripts/verify-oam-floor.mjs`.
+- **The key command no longer flashes a console window on Windows.** `LEMONSQUEEZY_API_KEY_COMMAND` is run with `windowsHide: true`, so a `cmd /c ...` or `powershell -File ...` command launched by a GUI MCP client with no console stays hidden. Node honours the option, and oam does from 0.19.1.
+
 ## [1.1.0] — 2026-10-09
 
 ### Fixed

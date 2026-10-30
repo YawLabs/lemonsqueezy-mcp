@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { after, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // The same one-level hop src/release-metadata.test.ts and src/sandbox-env.test.ts
 // use: authored in src/, executed from dist/, so resolving off import.meta.url
@@ -142,5 +142,35 @@ describe("check-oam-floor catches drift", () => {
     const r = runChecker(root);
     assert.notEqual(r.code, 0, r.out);
     assert.match(r.out, /OAM_MIN/);
+  });
+});
+
+describe("check-oam-floor entry point and env", () => {
+  it("still runs when invoked through a junctioned or symlinked path", () => {
+    // Node realpaths the main module's URL but not argv[1], so a raw compare of
+    // the two skipped main() and exited 0 with no output -- a silent pass.
+    const linkParent = mkdtempSync(join(tmpdir(), "lemonsqueezy-mcp-floor-link-"));
+    dirs.push(linkParent);
+    const link = join(linkParent, "scripts");
+    symlinkSync(join(repoRoot, "scripts"), link, "junction");
+    const root = fixture({ readme: "The launcher never serves on an oam older than **0.15.2**.\n" });
+    const r = spawnSync(process.execPath, [join(link, "check-oam-floor.mjs"), "--offline", "--root", root], {
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+    assert.match(out, /oam floor \(OAM_MIN/, "main() must run, not exit in silence");
+    assert.equal(r.status, 1, out);
+  });
+
+  it("reads LEMONSQUEEZY_MCP_ALLOW_STALE_OAM as 1 or true, trimmed, any case", async () => {
+    const { allowStaleOam } = (await import(pathToFileURL(CHECKER).href)) as {
+      allowStaleOam: (value: string | undefined) => boolean;
+    };
+    for (const value of ["1", "1 ", "TRUE", " true"]) assert.equal(allowStaleOam(value), true, JSON.stringify(value));
+    // Anything else keeps the stale check failing closed.
+    for (const value of [undefined, "", "0", "yes", "node "]) {
+      assert.equal(allowStaleOam(value), false, JSON.stringify(value));
+    }
   });
 });
