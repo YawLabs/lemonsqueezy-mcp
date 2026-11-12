@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **The oam floor moves from 0.19.1 to 0.19.5, so the `lemonsqueezy-mcp` launcher no longer runs the server on oam 0.19.1 through 0.19.4.** 0.19.5 is verified through the launcher with `OAM_BIN` pointing at the installed oam 0.19.5 (windows-arm64) and `LEMONSQUEEZY_MCP_RUNTIME=oam`: the MCP handshake, all 64 tools (the same names as on Node), `ls_get_user` answering the missing-key error it gives on Node, and the `lemonsqueezy://audit-log` resource, with the server process confirmed as `oam.exe run .../dist/index.js`. Under `LEMONSQUEEZY_MCP_SANDBOX=1` the launcher spawned `oam.exe --permission --allow-net=api.lemonsqueezy.com:443 ...`, the same 64 tools answered, and a `cmd /c` key command returned a key that the API rejected on 443 with `Unauthenticated.`. An older oam is passed over as before: the server runs on a newer oam or on Node under `auto`, and `LEMONSQUEEZY_MCP_RUNTIME=oam` exits with an error. Run `oam self-update`.
+
 ### Security
 - **zod 4.6.7 is bundled into `dist`, fixing GHSA-mrhx-c7xc-m3w5** (memory exhaustion while validating oversized constrained collections). zod validates every tool's input.
 - **fast-uri 3.1.9 is bundled into `dist`** (through the MCP SDK's ajv), fixing GHSA advisories for scheme spoofing, host confusion and relative-reference normalization.
