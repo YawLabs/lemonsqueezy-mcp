@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Security
+- **zod 4.6.7 is bundled into `dist`, fixing GHSA-mrhx-c7xc-m3w5** (memory exhaustion while validating oversized constrained collections). zod validates every tool's input.
+- **fast-uri 3.1.9 is bundled into `dist`** (through the MCP SDK's ajv), fixing GHSA advisories for scheme spoofing, host confusion and relative-reference normalization.
+- Transitive dependencies that do not ship in the package are bumped in the lockfile to clear the remaining Dependabot alerts and `npm audit`: hono 4.13.18, @hono/node-server 2.1.7, undici 8.12.4, body-parser 2.4.0, qs 6.17.1, ip-address 10.7.6 (#70).
+
 ## [1.1.1] — 2026-10-30
 
 ### Changed
