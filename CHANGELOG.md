@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- The release pre-flight checks the Yaw MCP floor: `scripts/check-yaw-mcp-floor.mjs` (`npm run check:yaw-mcp-floor`) fails on drift between `YAW_MCP_MIN` 1.1.13, the README's "Yaw MCP 1.1.13 or newer" and the `@yawlabs/mcp-compliance` devDependency (`^0.20.4`, the range Yaw MCP 1.1.13 pins), and warns without failing when a newer @yawlabs/mcp is published. Release tooling and docs only.
+
 ## [1.1.3] — 2026-11-15
 
 ### Changed

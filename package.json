@@ -54,6 +54,7 @@
     "lint:fix": "node scripts/lint.mjs check --write src/",
     "check:oam": "oam check",
     "check:oam-floor": "node scripts/check-oam-floor.mjs",
+    "check:yaw-mcp-floor": "node scripts/check-yaw-mcp-floor.mjs",
     "check:compliance": "node scripts/check-compliance.mjs",
     "build:binary:oam": "node scripts/build-binary-oam.mjs",
     "gen:containerfile": "node scripts/sync-containerfile.mjs",

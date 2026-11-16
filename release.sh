@@ -358,7 +358,7 @@ fi
 # =============================================================================
 # Step 1: Lint
 # =============================================================================
-step 1 "Lint, Containerfile drift and oam floor check"
+step 1 "Lint, Containerfile drift, oam and Yaw MCP floor checks"
 npm run lint || fail "Lint failed (try: npm run lint:fix)"
 info "Lint passed"
 npm run check:containerfile || fail "Containerfile drifted from Dockerfile (run: npm run gen:containerfile)"
@@ -368,6 +368,18 @@ info "Containerfile in sync with Dockerfile"
 # GitHub API is reported and does not fail the step.
 node scripts/check-oam-floor.mjs || fail "oam floor check failed -- see above. Set LEMONSQUEEZY_MCP_ALLOW_STALE_OAM=1 to release on the old floor deliberately."
 info "oam floor consistent and current"
+# The Yaw MCP floor: drift (YAW_MCP_MIN vs the README claim and the
+# @yawlabs/mcp-compliance devDependency) fails the release, and also runs in
+# step 2 (src/yaw-mcp-floor.test.ts). A newer @yawlabs/mcp on npm is only a
+# WARNING -- nothing at runtime reads this floor -- so it prints and the
+# release continues. Offline it says so and passes.
+YAW_FLOOR_OUT=$(node scripts/check-yaw-mcp-floor.mjs 2>&1) || { echo "$YAW_FLOOR_OUT"; fail "Yaw MCP floor drift -- see above."; }
+echo "$YAW_FLOOR_OUT"
+if echo "$YAW_FLOOR_OUT" | grep -q "WARNING"; then
+  warn "Yaw MCP floor is behind the latest @yawlabs/mcp -- continuing"
+else
+  info "Yaw MCP floor has no drift"
+fi
 
 # =============================================================================
 # Step 2: Test (npm test runs the build internally)
