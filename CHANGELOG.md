@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.3] — 2026-11-15
+
 ### Changed
 - **The oam floor moves from 0.19.5 to 0.20.2, so the `lemonsqueezy-mcp` launcher no longer runs the server on oam 0.19.5 through 0.20.1.** 0.20.2 is verified through the launcher with `OAM_BIN` pointing at the installed oam 0.20.2 (windows-arm64) and `LEMONSQUEEZY_MCP_RUNTIME=oam`: the MCP handshake, all 64 tools (the same names as on Node), `ls_get_user` answering the missing-key error it gives on Node, and the `lemonsqueezy://audit-log` resource, with the server process confirmed as `oam.exe run .../dist/index.js`. Under `LEMONSQUEEZY_MCP_SANDBOX=1` the launcher spawned `oam.exe --permission --allow-net=api.lemonsqueezy.com:443 ...`, the same 64 tools answered, and a `cmd /c` key command returned a key that the API rejected on 443 with `Unauthenticated.`. An older oam is passed over as before: the server runs on a newer oam or on Node under `auto`, and `LEMONSQUEEZY_MCP_RUNTIME=oam` exits with an error. Run `oam self-update`.
 - **The MCP SDK bundled into `dist` is 1.32.2** (was 1.32.1), the line Yaw MCP 1.1.13 pins.
@@ -744,7 +746,8 @@ Hardening pass for unattended automation against live billing flows.
 
 Initial release. 59 tools covering all 17 LemonSqueezy API resources.
 
-[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/YawLabs/lemonsqueezy-mcp/compare/v1.0.2...v1.1.0
